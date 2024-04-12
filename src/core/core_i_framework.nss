@@ -8,6 +8,7 @@
 #include "core_i_constants"
 #include "util_i_libraries"
 #include "util_i_timers"
+#include "util_i_variables"
 
 // -----------------------------------------------------------------------------
 //                              Function Prototypes
@@ -177,6 +178,16 @@ void HookObjectEvent(object oObject, int nEvent, int bStoreOldEvent = TRUE);
 ///     scripts that will be run by the Core Framework event hooks.
 void HookObjectEvents(object oObject, int bSkipHeartbeat = TRUE, int bStoreOldEvents = TRUE);
 
+/// @brief Set the Core Framework event hook script as an object event handler.
+/// @param oObject The object to set the handler for.
+/// @param nEvent The `EVENT_SCRIPT_*` constant matching the event.
+void UnHookObjectEvent(object oObject, int nEvent);
+
+/// @brief Set the Core Framework event hook script as the handler for all of an
+///     object's events.
+/// @param oObject The object to set the handlers for.
+void UnHookObjectEvents(object oObject);
+
 // ----- Plugin Management -----------------------------------------------------
 
 /// @brief Return a plugin's data object.
@@ -223,6 +234,15 @@ int ActivatePlugin(string sPlugin, int bForce = FALSE);
 /// @param bForce If TRUE, will deactivate even if the plugin is already OFF.
 /// @returns Whether the deactivation was successful.
 int DeactivatePlugin(string sPlugin, int bForce = FALSE);
+
+/// @brief Unloads a plugin from the system.
+/// @param sPlugin The plugin's unique identifier in the database.
+void UnloadPlugin(string sPlugin);
+
+/// @brief Reloads a plugin from the system.
+/// @param sPlugin The plugin's unique identifier in the database.
+/// @param sLibrary Library(ies) to load, supports patterns.
+void ReloadPlugin(string sPlugin, string sLibrary = "");
 
 /// @brief Return a plugin's unique identifier in the database.
 /// @param oPlugin A plugin's data object.
@@ -414,26 +434,56 @@ void InitializeCoreFramework()
     SetDebugLevel(DEFAULT_DEBUG_LEVEL, oModule);
 }
 
-void RestartCoreFramework()
+string _DialogEventToString(int nEvent)
 {
-    object oModule = GetModule();
-
-    if (GetLocalInt(oModule, CORE_RESTARTING))
+    switch (nEvent)
     {
-        return;
+    case 0x01:
+        return "OnDialogInit";
+    case 0x02:
+        return "OnDialogPage";
+    case 0x04:
+        return "OnDialogNode";
+    case 0x08:
+        return "OnDialogEnd";
+    case 0x10:
+        return "OnDialogAbort";
     }
 
-    SetLocalInt(oModule, CORE_RESTARTING, TRUE);
-    SetLocalInt(oModule, CORE_INITIALIZED, FALSE);
+    return "";
+}
 
-    DestroyTimers();
+void _UnloadDialogs()
+{
+    object oCache = GetDataItem(GetDatapoint("Dynamic Dialogs System"), "Dynamic Dialog: ");
+    int nEvent    = 0x01;
+    int nEvents   = 0x1f;
+    string sEvent;
 
+    for (nEvent; nEvent < nEvents; nEvent <<= 1)
+    {
+        if (nEvents & nEvent)
+        {
+            while (GetIsObjectValid(oCache))
+            {
+                sEvent = _DialogEventToString(nEvent);
+                DeleteLocalInt(oCache, sEvent);
+
+                oCache = GetDataItem(GetDatapoint("Dynamic Dialogs System"), "Dynamic Dialog: ");
+            }
+        }
+    }
+}
+
+void _UnloadPlugins()
+{
+    // Unload plugins
     if (INSTALLED_PLUGINS == "" && CountPlugins() > 0)
     {
         sqlquery q = GetPlugins();
         while (SqlStep(q))
         {
-            DeactivatePlugin(SqlGetString(q, 0));
+            UnloadPlugin(SqlGetString(q, 0));
         }
     }
     else
@@ -441,10 +491,17 @@ void RestartCoreFramework()
         int i, nCount = CountList(INSTALLED_PLUGINS);
         for (i = 0; i < nCount; i++)
         {
-            DeactivatePlugin(GetListItem(INSTALLED_PLUGINS, i));
+            UnloadPlugin(GetListItem(INSTALLED_PLUGINS, i));
         }
     }
 
+    SetScriptParam("LIB_LIBRARY", "");
+    SetScriptParam("LIB_SCRIPT", "");
+    SetScriptParam("LIB_ENTRY", "");
+}
+
+void _DeleteDebug()
+{
     // Unset specific event debug levels
     if (PERCEPTION_DEBUG_LEVEL)
     {
@@ -466,112 +523,54 @@ void RestartCoreFramework()
         DeleteEventDebugLevel(MODULE_EVENT_ON_HEARTBEAT);
     }
 
-    if (AUTO_HOOK_AREA_EVENTS || AUTO_HOOK_OBJECT_EVENTS)
-    {
-        object oArea = GetFirstArea();
-        while (GetIsObjectValid(oArea))
-        {
-            if (AUTO_HOOK_OBJECT_EVENTS)
-            {
-                // Once .35 is released, we can use the nObjectFilter parameter.
-                object oObject = GetFirstObjectInArea(oArea);
-                while (GetIsObjectValid(oObject))
-                {
-                    int nType = GetObjectType(oObject);
-                    if (AUTO_HOOK_OBJECT_EVENTS & nType && !GetLocalInt(oObject, SKIP_AUTO_HOOK))
-                    {
-                        int nEvent, nStart, nEnd, nSkip;
-
-                        switch (nType)
-                        {
-                            case OBJECT_TYPE_CREATURE:
-                                nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
-                                nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
-                                break;
-                            case OBJECT_TYPE_AREA_OF_EFFECT:
-                                nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
-                                nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
-                                break;
-                            case OBJECT_TYPE_DOOR:
-                                nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
-                                nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
-                                break;
-                            case OBJECT_TYPE_PLACEABLE:
-                                nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
-                                nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
-                                break;
-                            case OBJECT_TYPE_ENCOUNTER:
-                                nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
-                                nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
-                                break;
-                            case OBJECT_TYPE_TRIGGER:
-                                nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
-                                nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
-                                break;
-                            case OBJECT_TYPE_STORE:
-                                nStart = EVENT_SCRIPT_STORE_ON_OPEN;
-                                nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
-                                break;
-                            default:
-                                return;
-                        }
-
-                        for (nEvent = nStart; nEvent <= nEnd; nEvent++)
-                        {
-                            if (nEvent != nSkip)
-                            {
-                                DeleteLocalString(oArea, GetEventName(nEvent));
-                            }
-                        }
-                    }
-                    oObject = GetNextObjectInArea(oArea);
-                }
-            }
-
-            if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK))
-            {
-                int nEvent, nStart, nEnd, nSkip;
-
-                nStart = EVENT_SCRIPT_AREA_ON_HEARTBEAT;
-                nEnd   = EVENT_SCRIPT_AREA_ON_EXIT;
-
-                for (nEvent = nStart; nEvent <= nEnd; nEvent++)
-                {
-                    if (nEvent != nSkip)
-                    {
-                        DeleteLocalString(oArea, GetEventName(nEvent));
-                    }
-                }
-            }
-
-            oArea = GetNextArea();
-        }
-    }
-
-    if (AUTO_HOOK_MODULE_EVENTS)
-    {
-        int nEvent, nStart, nEnd, nSkip;
-
-        nStart = EVENT_SCRIPT_MODULE_ON_HEARTBEAT;
-        nEnd   = EVENT_SCRIPT_MODULE_ON_NUI_EVENT;
-
-        for (nEvent = nStart; nEvent <= nEnd; nEvent++)
-        {
-            if (nEvent != nSkip)
-            {
-                DeleteLocalString(oModule, GetEventName(nEvent));
-            }
-        }
-    }
-
     // Stop debugging
-    DeleteLocalString(PLUGINS, DEBUG_PREFIX);
-    DeleteLocalString(EVENTS, DEBUG_PREFIX);
-    DeleteLocalString(oModule, DEBUG_PREFIX);
+    UnSetDebugPrefix(PLUGINS);
+    UnSetDebugPrefix(EVENTS);
+    UnSetDebugPrefix(GetModule());
 
-    DeleteLocalInt(oModule, DEBUG_LOG);
-    DeleteLocalInt(oModule, DEBUG_LEVEL);
+    UnSetDebugLogging();
+    UnSetDebugLevel(GetModule());
+}
 
+void _DeleteEvents()
+{
+    // Unhook Events
+    // if (AUTO_HOOK_AREA_EVENTS || AUTO_HOOK_OBJECT_EVENTS)
+    // {
+    object oArea = GetFirstArea();
+    while (GetIsObjectValid(oArea))
+    {
+        // if (AUTO_HOOK_OBJECT_EVENTS)
+        // {
+        // Once .35 is released, we can use the nObjectFilter parameter.
+        object oObject = GetFirstObjectInArea(oArea);
+        while (GetIsObjectValid(oObject))
+        {
+            UnHookObjectEvents(oObject);
+            DeleteLocalJson(oObject, "Ref:*");
+            DeleteLocalVariables(oObject, VARIABLE_TYPE_ALL, "LIB_INIT:*");
+
+            oObject = GetNextObjectInArea(oArea);
+        }
+        // }
+
+        // if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK))
+        // {
+        UnHookObjectEvents(oArea);
+        // }
+
+        oArea = GetNextArea();
+    }
+    // }
+
+    // if (AUTO_HOOK_MODULE_EVENTS)
+    // {
+    UnHookObjectEvents(GetModule());
+    // }
+}
+
+void _DropTables()
+{
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS library_scripts;"));
 
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS timers;"));
@@ -583,17 +582,50 @@ void RestartCoreFramework()
 
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP VIEW IF EXISTS v_active_scripts;"));
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP VIEW IF EXISTS v_active_plugins;"));
+}
 
-    // If the script exists the builder, their script will have to #include this script, thus having access to
-    // "CORE_RESTARTING", it's up to them if their script will do something about it or not
+void RestartCoreFramework()
+{
+    object oModule = GetModule();
+
+    if (GetLocalInt(oModule, CORE_RESTARTING))
+    {
+        return;
+    }
+
+    SpeakString("Restarting Core Framework", TALKVOLUME_SHOUT);
+
+    SetLocalInt(oModule, CORE_RESTARTING, TRUE);
+
+    // Destroy timers for the first time
+    DestroyTimers();
+
+    DelayCommand(0.5f, _UnloadDialogs());
+
+    DelayCommand(1.0f, _UnloadPlugins());
+
+    DelayCommand(1.5f, _DeleteDebug());
+
+    DelayCommand(2.0f, _DeleteEvents());
+
+    // Destroy timers again for sanity check
+    DelayCommand(2.5f, DestroyTimers());
+
+    DelayCommand(3.0f, _DropTables());
+
+    // If the script exists the builder, their script will have to #include this script, thus
+    // having access to "CORE_RESTARTING", it's up to them if their script will do something
+    // about it or not
     // Should probably default to not run (aka return;) the script if the system is restarting
     if (ON_MODULE_PRELOAD != "")
     {
-        ExecuteScript(ON_MODULE_PRELOAD, oModule);
+        DelayCommand(3.5f, ExecuteScript(ON_MODULE_PRELOAD, oModule));
     }
 
-    SetLocalInt(oModule, CORE_RESTARTING, FALSE);
-    InitializeCoreFramework();
+    DelayCommand(4.0f, SetLocalInt(oModule, CORE_RESTARTING, FALSE));
+    DelayCommand(4.0f, SetLocalInt(oModule, CORE_INITIALIZED, FALSE));
+
+    DelayCommand(7.0f, InitializeCoreFramework());
 }
 
 // ----- Event Script Sources --------------------------------------------------
@@ -1043,236 +1075,236 @@ string GetEventName(int nEvent)
 {
     switch (nEvent / 1000)
     {
-        case EVENT_TYPE_MODULE: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_MODULE_ON_HEARTBEAT:
-                    return MODULE_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_MODULE_ON_USER_DEFINED_EVENT:
-                    return MODULE_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_MODULE_ON_MODULE_LOAD:
-                    return MODULE_EVENT_ON_MODULE_LOAD;
-                case EVENT_SCRIPT_MODULE_ON_MODULE_START:
-                    return MODULE_EVENT_ON_MODULE_START;
-                case EVENT_SCRIPT_MODULE_ON_CLIENT_ENTER:
-                    return MODULE_EVENT_ON_CLIENT_ENTER;
-                case EVENT_SCRIPT_MODULE_ON_CLIENT_EXIT:
-                    return MODULE_EVENT_ON_CLIENT_LEAVE;
-                case EVENT_SCRIPT_MODULE_ON_ACTIVATE_ITEM:
-                    return MODULE_EVENT_ON_ACTIVATE_ITEM;
-                case EVENT_SCRIPT_MODULE_ON_ACQUIRE_ITEM:
-                    return MODULE_EVENT_ON_ACQUIRE_ITEM;
-                case EVENT_SCRIPT_MODULE_ON_LOSE_ITEM:
-                    return MODULE_EVENT_ON_UNACQUIRE_ITEM;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_DEATH:
-                    return MODULE_EVENT_ON_PLAYER_DEATH;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_DYING:
-                    return MODULE_EVENT_ON_PLAYER_DYING;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_TARGET:
-                    return MODULE_EVENT_ON_PLAYER_TARGET;
-                case EVENT_SCRIPT_MODULE_ON_RESPAWN_BUTTON_PRESSED:
-                    return MODULE_EVENT_ON_PLAYER_RESPAWN;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_REST:
-                    return MODULE_EVENT_ON_PLAYER_REST;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_LEVEL_UP:
-                    return MODULE_EVENT_ON_PLAYER_LEVEL_UP;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_CANCEL_CUTSCENE:
-                    return MODULE_EVENT_ON_CUTSCENE_ABORT;
-                case EVENT_SCRIPT_MODULE_ON_EQUIP_ITEM:
-                    return MODULE_EVENT_ON_PLAYER_EQUIP_ITEM;
-                case EVENT_SCRIPT_MODULE_ON_UNEQUIP_ITEM:
-                    return MODULE_EVENT_ON_PLAYER_UNEQUIP_ITEM;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_CHAT:
-                    return MODULE_EVENT_ON_PLAYER_CHAT;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_GUIEVENT:
-                    return MODULE_EVENT_ON_PLAYER_GUI;
-                case EVENT_SCRIPT_MODULE_ON_NUI_EVENT:
-                    return MODULE_EVENT_ON_NUI;
-                case EVENT_SCRIPT_MODULE_ON_PLAYER_TILE_ACTION:
-                    return MODULE_EVENT_ON_PLAYER_TILE_ACTION;
-            }
-            break;
+    case EVENT_TYPE_MODULE: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_MODULE_ON_HEARTBEAT:
+            return MODULE_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_MODULE_ON_USER_DEFINED_EVENT:
+            return MODULE_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_MODULE_ON_MODULE_LOAD:
+            return MODULE_EVENT_ON_MODULE_LOAD;
+        case EVENT_SCRIPT_MODULE_ON_MODULE_START:
+            return MODULE_EVENT_ON_MODULE_START;
+        case EVENT_SCRIPT_MODULE_ON_CLIENT_ENTER:
+            return MODULE_EVENT_ON_CLIENT_ENTER;
+        case EVENT_SCRIPT_MODULE_ON_CLIENT_EXIT:
+            return MODULE_EVENT_ON_CLIENT_LEAVE;
+        case EVENT_SCRIPT_MODULE_ON_ACTIVATE_ITEM:
+            return MODULE_EVENT_ON_ACTIVATE_ITEM;
+        case EVENT_SCRIPT_MODULE_ON_ACQUIRE_ITEM:
+            return MODULE_EVENT_ON_ACQUIRE_ITEM;
+        case EVENT_SCRIPT_MODULE_ON_LOSE_ITEM:
+            return MODULE_EVENT_ON_UNACQUIRE_ITEM;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_DEATH:
+            return MODULE_EVENT_ON_PLAYER_DEATH;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_DYING:
+            return MODULE_EVENT_ON_PLAYER_DYING;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_TARGET:
+            return MODULE_EVENT_ON_PLAYER_TARGET;
+        case EVENT_SCRIPT_MODULE_ON_RESPAWN_BUTTON_PRESSED:
+            return MODULE_EVENT_ON_PLAYER_RESPAWN;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_REST:
+            return MODULE_EVENT_ON_PLAYER_REST;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_LEVEL_UP:
+            return MODULE_EVENT_ON_PLAYER_LEVEL_UP;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_CANCEL_CUTSCENE:
+            return MODULE_EVENT_ON_CUTSCENE_ABORT;
+        case EVENT_SCRIPT_MODULE_ON_EQUIP_ITEM:
+            return MODULE_EVENT_ON_PLAYER_EQUIP_ITEM;
+        case EVENT_SCRIPT_MODULE_ON_UNEQUIP_ITEM:
+            return MODULE_EVENT_ON_PLAYER_UNEQUIP_ITEM;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_CHAT:
+            return MODULE_EVENT_ON_PLAYER_CHAT;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_GUIEVENT:
+            return MODULE_EVENT_ON_PLAYER_GUI;
+        case EVENT_SCRIPT_MODULE_ON_NUI_EVENT:
+            return MODULE_EVENT_ON_NUI;
+        case EVENT_SCRIPT_MODULE_ON_PLAYER_TILE_ACTION:
+            return MODULE_EVENT_ON_PLAYER_TILE_ACTION;
         }
-        case EVENT_TYPE_AREA: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_AREA_ON_HEARTBEAT:
-                    return AREA_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_AREA_ON_USER_DEFINED_EVENT:
-                    return AREA_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_AREA_ON_ENTER:
-                    return AREA_EVENT_ON_ENTER;
-                case EVENT_SCRIPT_AREA_ON_EXIT:
-                    return AREA_EVENT_ON_EXIT;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_AREA: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_AREA_ON_HEARTBEAT:
+            return AREA_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_AREA_ON_USER_DEFINED_EVENT:
+            return AREA_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_AREA_ON_ENTER:
+            return AREA_EVENT_ON_ENTER;
+        case EVENT_SCRIPT_AREA_ON_EXIT:
+            return AREA_EVENT_ON_EXIT;
         }
-        case EVENT_TYPE_AREAOFEFFECT: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT:
-                    return AOE_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_AREAOFEFFECT_ON_USER_DEFINED_EVENT:
-                    return AOE_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_ENTER:
-                    return AOE_EVENT_ON_ENTER;
-                case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT:
-                    return AOE_EVENT_ON_EXIT;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_AREAOFEFFECT: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT:
+            return AOE_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_AREAOFEFFECT_ON_USER_DEFINED_EVENT:
+            return AOE_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_ENTER:
+            return AOE_EVENT_ON_ENTER;
+        case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT:
+            return AOE_EVENT_ON_EXIT;
         }
-        case EVENT_TYPE_CREATURE: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_CREATURE_ON_HEARTBEAT:
-                    return CREATURE_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_CREATURE_ON_NOTICE:
-                    return CREATURE_EVENT_ON_PERCEPTION;
-                case EVENT_SCRIPT_CREATURE_ON_SPELLCASTAT:
-                    return CREATURE_EVENT_ON_SPELL_CAST_AT;
-                case EVENT_SCRIPT_CREATURE_ON_MELEE_ATTACKED:
-                    return CREATURE_EVENT_ON_PHYSICAL_ATTACKED;
-                case EVENT_SCRIPT_CREATURE_ON_DAMAGED:
-                    return CREATURE_EVENT_ON_DAMAGED;
-                case EVENT_SCRIPT_CREATURE_ON_DISTURBED:
-                    return CREATURE_EVENT_ON_DISTURBED;
-                case EVENT_SCRIPT_CREATURE_ON_END_COMBATROUND:
-                    return CREATURE_EVENT_ON_COMBAT_ROUND_END;
-                case EVENT_SCRIPT_CREATURE_ON_DIALOGUE:
-                    return CREATURE_EVENT_ON_CONVERSATION;
-                case EVENT_SCRIPT_CREATURE_ON_SPAWN_IN:
-                    return CREATURE_EVENT_ON_SPAWN;
-                case EVENT_SCRIPT_CREATURE_ON_RESTED:
-                    return CREATURE_EVENT_ON_RESTED;
-                case EVENT_SCRIPT_CREATURE_ON_DEATH:
-                    return CREATURE_EVENT_ON_DEATH;
-                case EVENT_SCRIPT_CREATURE_ON_USER_DEFINED_EVENT:
-                    return CREATURE_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR:
-                    return CREATURE_EVENT_ON_BLOCKED;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_CREATURE: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_CREATURE_ON_HEARTBEAT:
+            return CREATURE_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_CREATURE_ON_NOTICE:
+            return CREATURE_EVENT_ON_PERCEPTION;
+        case EVENT_SCRIPT_CREATURE_ON_SPELLCASTAT:
+            return CREATURE_EVENT_ON_SPELL_CAST_AT;
+        case EVENT_SCRIPT_CREATURE_ON_MELEE_ATTACKED:
+            return CREATURE_EVENT_ON_PHYSICAL_ATTACKED;
+        case EVENT_SCRIPT_CREATURE_ON_DAMAGED:
+            return CREATURE_EVENT_ON_DAMAGED;
+        case EVENT_SCRIPT_CREATURE_ON_DISTURBED:
+            return CREATURE_EVENT_ON_DISTURBED;
+        case EVENT_SCRIPT_CREATURE_ON_END_COMBATROUND:
+            return CREATURE_EVENT_ON_COMBAT_ROUND_END;
+        case EVENT_SCRIPT_CREATURE_ON_DIALOGUE:
+            return CREATURE_EVENT_ON_CONVERSATION;
+        case EVENT_SCRIPT_CREATURE_ON_SPAWN_IN:
+            return CREATURE_EVENT_ON_SPAWN;
+        case EVENT_SCRIPT_CREATURE_ON_RESTED:
+            return CREATURE_EVENT_ON_RESTED;
+        case EVENT_SCRIPT_CREATURE_ON_DEATH:
+            return CREATURE_EVENT_ON_DEATH;
+        case EVENT_SCRIPT_CREATURE_ON_USER_DEFINED_EVENT:
+            return CREATURE_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR:
+            return CREATURE_EVENT_ON_BLOCKED;
         }
-        case EVENT_TYPE_TRIGGER: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT:
-                    return TRIGGER_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_TRIGGER_ON_OBJECT_ENTER:
-                    return TRIGGER_EVENT_ON_ENTER;
-                case EVENT_SCRIPT_TRIGGER_ON_OBJECT_EXIT:
-                    return TRIGGER_EVENT_ON_EXIT;
-                case EVENT_SCRIPT_TRIGGER_ON_USER_DEFINED_EVENT:
-                    return TRIGGER_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_TRIGGER_ON_TRAPTRIGGERED:
-                    return TRAP_EVENT_ON_TRIGGERED;
-                case EVENT_SCRIPT_TRIGGER_ON_DISARMED:
-                    return TRAP_EVENT_ON_DISARM;
-                case EVENT_SCRIPT_TRIGGER_ON_CLICKED:
-                    return TRIGGER_EVENT_ON_CLICK;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_TRIGGER: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT:
+            return TRIGGER_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_TRIGGER_ON_OBJECT_ENTER:
+            return TRIGGER_EVENT_ON_ENTER;
+        case EVENT_SCRIPT_TRIGGER_ON_OBJECT_EXIT:
+            return TRIGGER_EVENT_ON_EXIT;
+        case EVENT_SCRIPT_TRIGGER_ON_USER_DEFINED_EVENT:
+            return TRIGGER_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_TRIGGER_ON_TRAPTRIGGERED:
+            return TRAP_EVENT_ON_TRIGGERED;
+        case EVENT_SCRIPT_TRIGGER_ON_DISARMED:
+            return TRAP_EVENT_ON_DISARM;
+        case EVENT_SCRIPT_TRIGGER_ON_CLICKED:
+            return TRIGGER_EVENT_ON_CLICK;
         }
-        case EVENT_TYPE_PLACEABLE: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_PLACEABLE_ON_CLOSED:
-                    return PLACEABLE_EVENT_ON_CLOSE;
-                case EVENT_SCRIPT_PLACEABLE_ON_DAMAGED:
-                    return PLACEABLE_EVENT_ON_DAMAGED;
-                case EVENT_SCRIPT_PLACEABLE_ON_DEATH:
-                    return PLACEABLE_EVENT_ON_DEATH;
-                case EVENT_SCRIPT_PLACEABLE_ON_DISARM:
-                    return TRAP_EVENT_ON_DISARM;
-                case EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT:
-                    return PLACEABLE_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_PLACEABLE_ON_INVENTORYDISTURBED:
-                    return PLACEABLE_EVENT_ON_DISTURBED;
-                case EVENT_SCRIPT_PLACEABLE_ON_LOCK:
-                    return PLACEABLE_EVENT_ON_LOCK;
-                case EVENT_SCRIPT_PLACEABLE_ON_MELEEATTACKED:
-                    return PLACEABLE_EVENT_ON_PHYSICAL_ATTACKED;
-                case EVENT_SCRIPT_PLACEABLE_ON_OPEN:
-                    return PLACEABLE_EVENT_ON_OPEN;
-                case EVENT_SCRIPT_PLACEABLE_ON_SPELLCASTAT:
-                    return PLACEABLE_EVENT_ON_SPELL_CAST_AT;
-                case EVENT_SCRIPT_PLACEABLE_ON_TRAPTRIGGERED:
-                    return TRAP_EVENT_ON_TRIGGERED;
-                case EVENT_SCRIPT_PLACEABLE_ON_UNLOCK:
-                    return PLACEABLE_EVENT_ON_UNLOCK;
-                case EVENT_SCRIPT_PLACEABLE_ON_USED:
-                    return PLACEABLE_EVENT_ON_USED;
-                case EVENT_SCRIPT_PLACEABLE_ON_USER_DEFINED_EVENT:
-                    return PLACEABLE_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_PLACEABLE_ON_DIALOGUE:
-                    return PLACEABLE_EVENT_ON_CONVERSATION;
-                case EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK:
-                    return PLACEABLE_EVENT_ON_CLICK;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_PLACEABLE: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_PLACEABLE_ON_CLOSED:
+            return PLACEABLE_EVENT_ON_CLOSE;
+        case EVENT_SCRIPT_PLACEABLE_ON_DAMAGED:
+            return PLACEABLE_EVENT_ON_DAMAGED;
+        case EVENT_SCRIPT_PLACEABLE_ON_DEATH:
+            return PLACEABLE_EVENT_ON_DEATH;
+        case EVENT_SCRIPT_PLACEABLE_ON_DISARM:
+            return TRAP_EVENT_ON_DISARM;
+        case EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT:
+            return PLACEABLE_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_PLACEABLE_ON_INVENTORYDISTURBED:
+            return PLACEABLE_EVENT_ON_DISTURBED;
+        case EVENT_SCRIPT_PLACEABLE_ON_LOCK:
+            return PLACEABLE_EVENT_ON_LOCK;
+        case EVENT_SCRIPT_PLACEABLE_ON_MELEEATTACKED:
+            return PLACEABLE_EVENT_ON_PHYSICAL_ATTACKED;
+        case EVENT_SCRIPT_PLACEABLE_ON_OPEN:
+            return PLACEABLE_EVENT_ON_OPEN;
+        case EVENT_SCRIPT_PLACEABLE_ON_SPELLCASTAT:
+            return PLACEABLE_EVENT_ON_SPELL_CAST_AT;
+        case EVENT_SCRIPT_PLACEABLE_ON_TRAPTRIGGERED:
+            return TRAP_EVENT_ON_TRIGGERED;
+        case EVENT_SCRIPT_PLACEABLE_ON_UNLOCK:
+            return PLACEABLE_EVENT_ON_UNLOCK;
+        case EVENT_SCRIPT_PLACEABLE_ON_USED:
+            return PLACEABLE_EVENT_ON_USED;
+        case EVENT_SCRIPT_PLACEABLE_ON_USER_DEFINED_EVENT:
+            return PLACEABLE_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_PLACEABLE_ON_DIALOGUE:
+            return PLACEABLE_EVENT_ON_CONVERSATION;
+        case EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK:
+            return PLACEABLE_EVENT_ON_CLICK;
         }
-        case EVENT_TYPE_DOOR: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_DOOR_ON_OPEN:
-                    return DOOR_EVENT_ON_OPEN;
-                case EVENT_SCRIPT_DOOR_ON_CLOSE:
-                    return DOOR_EVENT_ON_CLOSE;
-                case EVENT_SCRIPT_DOOR_ON_DAMAGE:
-                    return DOOR_EVENT_ON_DAMAGED;
-                case EVENT_SCRIPT_DOOR_ON_DEATH:
-                    return DOOR_EVENT_ON_DEATH;
-                case EVENT_SCRIPT_DOOR_ON_DISARM:
-                    return TRAP_EVENT_ON_DISARM;
-                case EVENT_SCRIPT_DOOR_ON_HEARTBEAT:
-                    return DOOR_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_DOOR_ON_LOCK:
-                    return DOOR_EVENT_ON_LOCK;
-                case EVENT_SCRIPT_DOOR_ON_MELEE_ATTACKED:
-                    return DOOR_EVENT_ON_PHYSICAL_ATTACKED;
-                case EVENT_SCRIPT_DOOR_ON_SPELLCASTAT:
-                    return DOOR_EVENT_ON_SPELL_CAST_AT;
-                case EVENT_SCRIPT_DOOR_ON_TRAPTRIGGERED:
-                    return TRAP_EVENT_ON_TRIGGERED;
-                case EVENT_SCRIPT_DOOR_ON_UNLOCK:
-                    return DOOR_EVENT_ON_UNLOCK;
-                case EVENT_SCRIPT_DOOR_ON_USERDEFINED:
-                    return DOOR_EVENT_ON_USER_DEFINED;
-                case EVENT_SCRIPT_DOOR_ON_CLICKED:
-                    return DOOR_EVENT_ON_AREA_TRANSITION_CLICK;
-                case EVENT_SCRIPT_DOOR_ON_DIALOGUE:
-                    return DOOR_EVENT_ON_CONVERSATION;
-                case EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN:
-                    return DOOR_EVENT_ON_FAIL_TO_OPEN;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_DOOR: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_DOOR_ON_OPEN:
+            return DOOR_EVENT_ON_OPEN;
+        case EVENT_SCRIPT_DOOR_ON_CLOSE:
+            return DOOR_EVENT_ON_CLOSE;
+        case EVENT_SCRIPT_DOOR_ON_DAMAGE:
+            return DOOR_EVENT_ON_DAMAGED;
+        case EVENT_SCRIPT_DOOR_ON_DEATH:
+            return DOOR_EVENT_ON_DEATH;
+        case EVENT_SCRIPT_DOOR_ON_DISARM:
+            return TRAP_EVENT_ON_DISARM;
+        case EVENT_SCRIPT_DOOR_ON_HEARTBEAT:
+            return DOOR_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_DOOR_ON_LOCK:
+            return DOOR_EVENT_ON_LOCK;
+        case EVENT_SCRIPT_DOOR_ON_MELEE_ATTACKED:
+            return DOOR_EVENT_ON_PHYSICAL_ATTACKED;
+        case EVENT_SCRIPT_DOOR_ON_SPELLCASTAT:
+            return DOOR_EVENT_ON_SPELL_CAST_AT;
+        case EVENT_SCRIPT_DOOR_ON_TRAPTRIGGERED:
+            return TRAP_EVENT_ON_TRIGGERED;
+        case EVENT_SCRIPT_DOOR_ON_UNLOCK:
+            return DOOR_EVENT_ON_UNLOCK;
+        case EVENT_SCRIPT_DOOR_ON_USERDEFINED:
+            return DOOR_EVENT_ON_USER_DEFINED;
+        case EVENT_SCRIPT_DOOR_ON_CLICKED:
+            return DOOR_EVENT_ON_AREA_TRANSITION_CLICK;
+        case EVENT_SCRIPT_DOOR_ON_DIALOGUE:
+            return DOOR_EVENT_ON_CONVERSATION;
+        case EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN:
+            return DOOR_EVENT_ON_FAIL_TO_OPEN;
         }
-        case EVENT_TYPE_ENCOUNTER: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER:
-                    return ENCOUNTER_EVENT_ON_ENTER;
-                case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_EXIT:
-                    return ENCOUNTER_EVENT_ON_EXIT;
-                case EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT:
-                    return ENCOUNTER_EVENT_ON_HEARTBEAT;
-                case EVENT_SCRIPT_ENCOUNTER_ON_ENCOUNTER_EXHAUSTED:
-                    return ENCOUNTER_EVENT_ON_EXHAUSTED;
-                case EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT:
-                    return ENCOUNTER_EVENT_ON_USER_DEFINED;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_ENCOUNTER: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER:
+            return ENCOUNTER_EVENT_ON_ENTER;
+        case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_EXIT:
+            return ENCOUNTER_EVENT_ON_EXIT;
+        case EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT:
+            return ENCOUNTER_EVENT_ON_HEARTBEAT;
+        case EVENT_SCRIPT_ENCOUNTER_ON_ENCOUNTER_EXHAUSTED:
+            return ENCOUNTER_EVENT_ON_EXHAUSTED;
+        case EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT:
+            return ENCOUNTER_EVENT_ON_USER_DEFINED;
         }
-        case EVENT_TYPE_STORE: {
-            switch (nEvent)
-            {
-                case EVENT_SCRIPT_STORE_ON_OPEN:
-                    return STORE_EVENT_ON_OPEN;
-                case EVENT_SCRIPT_STORE_ON_CLOSE:
-                    return STORE_EVENT_ON_CLOSE;
-            }
-            break;
+        break;
+    }
+    case EVENT_TYPE_STORE: {
+        switch (nEvent)
+        {
+        case EVENT_SCRIPT_STORE_ON_OPEN:
+            return STORE_EVENT_ON_OPEN;
+        case EVENT_SCRIPT_STORE_ON_CLOSE:
+            return STORE_EVENT_ON_CLOSE;
         }
+        break;
+    }
     }
 
     return "";
@@ -1320,64 +1352,64 @@ void HookObjectEvents(object oObject, int bSkipHeartbeat = TRUE, int bStoreOldEv
     {
         switch (GetObjectType(oObject))
         {
-            case OBJECT_TYPE_CREATURE:
-                nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
-                nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
-                if (bSkipHeartbeat)
-                {
-                    nStart++;
-                }
-                break;
-            case OBJECT_TYPE_AREA_OF_EFFECT:
-                nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
-                nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
-                if (bSkipHeartbeat)
-                {
-                    nStart++;
-                }
-                break;
-            case OBJECT_TYPE_DOOR:
-                nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
-                nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
-                if (bSkipHeartbeat)
-                {
-                    nSkip = EVENT_SCRIPT_DOOR_ON_HEARTBEAT;
-                }
-                break;
-            case OBJECT_TYPE_PLACEABLE:
-                nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
-                nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
-                if (bSkipHeartbeat)
-                {
-                    nSkip = EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT;
-                }
-                break;
-            case OBJECT_TYPE_ENCOUNTER:
-                nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
-                nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
-                if (bSkipHeartbeat)
-                {
-                    nSkip = EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT;
-                }
-                break;
-            case OBJECT_TYPE_TRIGGER:
-                nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
-                nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
-                if (bSkipHeartbeat)
-                {
-                    nStart++;
-                }
-                if (JsonPointer(ObjectToJson(oObject), "/LinkedTo/value") == JsonString(""))
-                {
-                    nEnd--;
-                }
-                break;
-            case OBJECT_TYPE_STORE:
-                nStart = EVENT_SCRIPT_STORE_ON_OPEN;
-                nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
-                break;
-            default:
-                return;
+        case OBJECT_TYPE_CREATURE:
+            nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
+            nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
+            if (bSkipHeartbeat)
+            {
+                nStart++;
+            }
+            break;
+        case OBJECT_TYPE_AREA_OF_EFFECT:
+            nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
+            nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
+            if (bSkipHeartbeat)
+            {
+                nStart++;
+            }
+            break;
+        case OBJECT_TYPE_DOOR:
+            nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
+            nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
+            if (bSkipHeartbeat)
+            {
+                nSkip = EVENT_SCRIPT_DOOR_ON_HEARTBEAT;
+            }
+            break;
+        case OBJECT_TYPE_PLACEABLE:
+            nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
+            nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
+            if (bSkipHeartbeat)
+            {
+                nSkip = EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT;
+            }
+            break;
+        case OBJECT_TYPE_ENCOUNTER:
+            nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
+            nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
+            if (bSkipHeartbeat)
+            {
+                nSkip = EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT;
+            }
+            break;
+        case OBJECT_TYPE_TRIGGER:
+            nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
+            nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
+            if (bSkipHeartbeat)
+            {
+                nStart++;
+            }
+            if (JsonPointer(ObjectToJson(oObject), "/LinkedTo/value") == JsonString(""))
+            {
+                nEnd--;
+            }
+            break;
+        case OBJECT_TYPE_STORE:
+            nStart = EVENT_SCRIPT_STORE_ON_OPEN;
+            nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
+            break;
+        default:
+            return;
         }
     }
 
@@ -1387,6 +1419,70 @@ void HookObjectEvents(object oObject, int bSkipHeartbeat = TRUE, int bStoreOldEv
         {
             HookObjectEvent(oObject, nEvent, bStoreOldEvents);
         }
+    }
+}
+
+void UnHookObjectEvent(object oObject, int nEvent)
+{
+    SetEventScript(oObject, nEvent, "");
+
+    string sEvent = GetEventName(nEvent);
+    DeleteLocalString(oObject, sEvent);
+}
+
+void UnHookObjectEvents(object oObject)
+{
+    int nEvent, nStart, nEnd, nSkip;
+    if (oObject == GetModule())
+    {
+        nStart = EVENT_SCRIPT_MODULE_ON_HEARTBEAT;
+        nEnd   = EVENT_SCRIPT_MODULE_ON_NUI_EVENT;
+    }
+    else if (oObject == GetArea(oObject))
+    {
+        nStart = EVENT_SCRIPT_AREA_ON_HEARTBEAT;
+        nEnd   = EVENT_SCRIPT_AREA_ON_EXIT;
+    }
+    else
+    {
+        switch (GetObjectType(oObject))
+        {
+        case OBJECT_TYPE_CREATURE:
+            nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
+            nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
+            break;
+        case OBJECT_TYPE_AREA_OF_EFFECT:
+            nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
+            nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
+            break;
+        case OBJECT_TYPE_DOOR:
+            nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
+            nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
+            break;
+        case OBJECT_TYPE_PLACEABLE:
+            nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
+            nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
+            break;
+        case OBJECT_TYPE_ENCOUNTER:
+            nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
+            nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
+            break;
+        case OBJECT_TYPE_TRIGGER:
+            nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
+            nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
+            break;
+        case OBJECT_TYPE_STORE:
+            nStart = EVENT_SCRIPT_STORE_ON_OPEN;
+            nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
+            break;
+        default:
+            return;
+        }
+    }
+
+    for (nEvent = nStart; nEvent <= nEnd; nEvent++)
+    {
+        UnHookObjectEvent(oObject, nEvent);
     }
 }
 
@@ -1515,6 +1611,74 @@ int ActivatePlugin(string sPlugin, int bForce = FALSE)
 int DeactivatePlugin(string sPlugin, int bForce = FALSE)
 {
     return _ActivatePlugin(sPlugin, FALSE, bForce);
+}
+
+void UnloadPlugin(string sPlugin)
+{
+    object oPlugin = GetPlugin(sPlugin);
+
+    if (!GetIsObjectValid(oPlugin))
+    {
+        return;
+    }
+
+    int nStatus = GetPluginStatus(oPlugin);
+    if (nStatus == PLUGIN_STATUS_MISSING)
+    {
+        Error("Cannot unload plugin: plugin missing", oPlugin);
+        return;
+    }
+
+    string sTables = "plugins,scripts,sources,blacklists";
+    int n;
+    for (n; n < CountList(sTables); n++)
+    {
+        string sTable = "event_" + GetListItem(sTables, n);
+        sqlquery q    = SqlPrepareQueryModule("DELETE FROM " + sTable + " WHERE object_id = @object_id;");
+        SqlBindString(q, "@object_id", ObjectToString(oPlugin));
+        SqlStep(q);
+    }
+
+    Debug("Plugin " + sPlugin + " unloaded.", DEBUG_LEVEL_DEBUG, oPlugin);
+
+    DestroyObject(oPlugin);
+}
+
+void ReloadPlugin(string sPlugin, string sLibrary = "")
+{
+    object oPlugin = GetPlugin(sPlugin);
+
+    if (!GetIsObjectValid(oPlugin))
+    {
+        return;
+    }
+
+    int nStatus = GetPluginStatus(oPlugin);
+    if (nStatus == PLUGIN_STATUS_MISSING)
+    {
+        Error("Cannot unload plugin: plugin missing", oPlugin);
+        return;
+    }
+
+    string sLibraryList;
+
+    if (sLibrary == "")
+    {
+        sLibraryList = GetLocalString(oPlugin, LIB_LIST);
+    }
+    else
+    {
+        sLibraryList = sLibrary;
+    }
+
+    UnloadPlugin(sPlugin);
+
+    if (sLibraryList != "")
+    {
+        LoadLibrariesByPattern(sLibraryList);
+    }
+
+    Debug("Plugin " + sPlugin + " reloaded.", DEBUG_LEVEL_DEBUG, oPlugin);
 }
 
 string GetPluginID(object oPlugin)
