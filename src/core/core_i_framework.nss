@@ -19,7 +19,8 @@
 void InitializeCoreFramework();
 
 /// @brief Restart the Core Framework pre-modload and modload events won't refire.
-/// @note This is a system function that need not be used by the builder.
+/// @note This is still prototype.
+/// @observations Placeables doesn't get their scripts reapplied.
 void RestartCoreFramework();
 
 /// @brief Add a local source of event scripts to an object.
@@ -434,47 +435,7 @@ void InitializeCoreFramework()
     SetDebugLevel(DEFAULT_DEBUG_LEVEL, oModule);
 }
 
-string _DialogEventToString(int nEvent)
-{
-    switch (nEvent)
-    {
-    case 0x01:
-        return "OnDialogInit";
-    case 0x02:
-        return "OnDialogPage";
-    case 0x04:
-        return "OnDialogNode";
-    case 0x08:
-        return "OnDialogEnd";
-    case 0x10:
-        return "OnDialogAbort";
-    }
-
-    return "";
-}
-
-void _UnloadDialogs()
-{
-    object oCache = GetDataItem(GetDatapoint("Dynamic Dialogs System"), "Dynamic Dialog: ");
-    int nEvent    = 0x01;
-    int nEvents   = 0x1f;
-    string sEvent;
-
-    for (nEvent; nEvent < nEvents; nEvent <<= 1)
-    {
-        if (nEvents & nEvent)
-        {
-            while (GetIsObjectValid(oCache))
-            {
-                sEvent = _DialogEventToString(nEvent);
-                DeleteLocalInt(oCache, sEvent);
-
-                oCache = GetDataItem(GetDatapoint("Dynamic Dialogs System"), "Dynamic Dialog: ");
-            }
-        }
-    }
-}
-
+// Unloads plugins and unsets ScriptParams
 void _UnloadPlugins()
 {
     // Unload plugins
@@ -500,30 +461,21 @@ void _UnloadPlugins()
     SetScriptParam("LIB_ENTRY", "");
 }
 
+// Deletes/Unsets all debug
 void _DeleteDebug()
 {
-    // Unset specific event debug levels
-    if (PERCEPTION_DEBUG_LEVEL)
-    {
+    DeleteEventDebugLevel(CREATURE_EVENT_ON_PERCEPTION);
+    DeleteEventDebugLevel(PC_EVENT_ON_PERCEPTION);
+    DeleteEventDebugLevel(TRIGGER_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(PLACEABLE_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(ENCOUNTER_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(DOOR_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(PC_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(CREATURE_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(AOE_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(AREA_EVENT_ON_HEARTBEAT);
+    DeleteEventDebugLevel(MODULE_EVENT_ON_HEARTBEAT);
 
-        DeleteEventDebugLevel(CREATURE_EVENT_ON_PERCEPTION);
-        DeleteEventDebugLevel(PC_EVENT_ON_PERCEPTION);
-    }
-
-    if (HEARTBEAT_DEBUG_LEVEL)
-    {
-        DeleteEventDebugLevel(TRIGGER_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(PLACEABLE_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(ENCOUNTER_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(DOOR_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(PC_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(CREATURE_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(AOE_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(AREA_EVENT_ON_HEARTBEAT);
-        DeleteEventDebugLevel(MODULE_EVENT_ON_HEARTBEAT);
-    }
-
-    // Stop debugging
     UnSetDebugPrefix(PLUGINS);
     UnSetDebugPrefix(EVENTS);
     UnSetDebugPrefix(GetModule());
@@ -532,17 +484,15 @@ void _DeleteDebug()
     UnSetDebugLevel(GetModule());
 }
 
+// Unhooks all Events
 void _DeleteEvents()
 {
-    // Unhook Events
-    // if (AUTO_HOOK_AREA_EVENTS || AUTO_HOOK_OBJECT_EVENTS)
-    // {
+    // Delete all GetModule() variables, including DataPoints
+    DeleteModuleVariables();
+
     object oArea = GetFirstArea();
     while (GetIsObjectValid(oArea))
     {
-        // if (AUTO_HOOK_OBJECT_EVENTS)
-        // {
-        // Once .35 is released, we can use the nObjectFilter parameter.
         object oObject = GetFirstObjectInArea(oArea);
         while (GetIsObjectValid(oObject))
         {
@@ -550,31 +500,38 @@ void _DeleteEvents()
             DeleteLocalJson(oObject, "Ref:*");
             DeleteLocalVariables(oObject, VARIABLE_TYPE_ALL, "LIB_INIT:*");
 
+            // This will delete all DataPoint items
+            if (GetResRef(oObject) == "x1_hen_inv")
+            {
+                DestroyObject(oObject);
+            }
+
             oObject = GetNextObjectInArea(oArea);
         }
-        // }
-
-        // if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK))
-        // {
         UnHookObjectEvents(oArea);
-        // }
 
         oArea = GetNextArea();
     }
-    // }
-
-    // if (AUTO_HOOK_MODULE_EVENTS)
-    // {
     UnHookObjectEvents(GetModule());
-    // }
 }
 
+// This "should" delete all databases used by "vanilla" framework
 void _DropTables()
 {
+    // util_i_libraries
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS library_scripts;"));
 
+    // util_i_timers
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS timers;"));
 
+    // pqj Plugin
+    SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS pqjdata;"));
+
+    // util_i_targeting
+    SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS targeting_hooks;"));
+    SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS targeting_targets;"));
+
+    // core_i_framework
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS event_blacklists;"));
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS event_scripts;"));
     SqlStep(SqlPrepareQueryObject(GetModule(), "DROP TABLE IF EXISTS event_sources;"));
@@ -600,18 +557,16 @@ void RestartCoreFramework()
     // Destroy timers for the first time
     DestroyTimers();
 
-    DelayCommand(0.5f, _UnloadDialogs());
+    DelayCommand(0.0f, _UnloadPlugins());
 
-    DelayCommand(1.0f, _UnloadPlugins());
+    DelayCommand(0.5f, _DeleteDebug());
 
-    DelayCommand(1.5f, _DeleteDebug());
-
-    DelayCommand(2.0f, _DeleteEvents());
+    DelayCommand(1.0f, _DeleteEvents());
 
     // Destroy timers again for sanity check
-    DelayCommand(2.5f, DestroyTimers());
+    DelayCommand(1.5f, DestroyTimers());
 
-    DelayCommand(3.0f, _DropTables());
+    DelayCommand(2.0f, _DropTables());
 
     // If the script exists the builder, their script will have to #include this script, thus
     // having access to "CORE_RESTARTING", it's up to them if their script will do something
@@ -619,13 +574,13 @@ void RestartCoreFramework()
     // Should probably default to not run (aka return;) the script if the system is restarting
     if (ON_MODULE_PRELOAD != "")
     {
-        DelayCommand(3.5f, ExecuteScript(ON_MODULE_PRELOAD, oModule));
+        DelayCommand(2.5f, ExecuteScript(ON_MODULE_PRELOAD, oModule));
     }
 
-    DelayCommand(4.0f, SetLocalInt(oModule, CORE_RESTARTING, FALSE));
-    DelayCommand(4.0f, SetLocalInt(oModule, CORE_INITIALIZED, FALSE));
+    DelayCommand(3.0f, SetLocalInt(oModule, CORE_RESTARTING, FALSE));
+    DelayCommand(3.0f, SetLocalInt(oModule, CORE_INITIALIZED, FALSE));
 
-    DelayCommand(7.0f, InitializeCoreFramework());
+    DelayCommand(6.0f, InitializeCoreFramework());
 }
 
 // ----- Event Script Sources --------------------------------------------------
