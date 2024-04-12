@@ -20,7 +20,7 @@ void InitializeCoreFramework();
 
 /// @brief Restart the Core Framework pre-modload and modload events won't refire.
 /// @note This is still prototype.
-/// @observations Placeables doesn't get their scripts reapplied.
+/// @observations Placeables and the Module doesn't get their scripts reapplied.
 void RestartCoreFramework();
 
 /// @brief Add a local source of event scripts to an object.
@@ -493,6 +493,8 @@ void _DeleteEvents()
     object oArea = GetFirstArea();
     while (GetIsObjectValid(oArea))
     {
+        int i = 0;
+
         object oObject = GetFirstObjectInArea(oArea);
         while (GetIsObjectValid(oObject))
         {
@@ -506,13 +508,50 @@ void _DeleteEvents()
                 DestroyObject(oObject);
             }
 
+            if (GetObjectType(oObject) != OBJECT_TYPE_CREATURE &&
+                GetObjectType(oObject) != OBJECT_TYPE_ITEM)
+            {
+                // SaveLocalVariable to create later
+                // SetLocalInt(oArea, "ObjectN" + IntToString(i), GetObjectType(oObject));
+                SetLocalString(oArea, "ObjectN" + IntToString(i), GetTag(oObject));
+                SetLocalObject(oArea, "ObjectN" + IntToString(i), oObject);
+                SetLocalLocation(oArea, "ObjectN" + IntToString(i), GetLocation(oObject));
+                SetLocalInt(oArea, "ObjectNSize", i);
+                DestroyObject(oObject);
+                i++;
+            }
+
             oObject = GetNextObjectInArea(oArea);
         }
+
         UnHookObjectEvents(oArea);
 
         oArea = GetNextArea();
     }
     UnHookObjectEvents(GetModule());
+}
+
+void _RecreateObjects()
+{
+    int i, nSize;
+    string sTag;
+    object oNew;
+    location lLocation;
+
+    object oArea = GetFirstArea();
+    while (GetIsObjectValid(oArea))
+    {
+        nSize = GetLocalInt(oArea, "ObjectNSize");
+
+        for (i = 0; i < nSize; i++)
+        {
+            oNew      = GetLocalObject(oArea, "ObjectN" + IntToString(i));
+            sTag      = GetLocalString(oArea, "ObjectN" + IntToString(i));
+            lLocation = GetLocalLocation(oArea, "ObjectN" + IntToString(i));
+            CopyObject(oNew, GetLocation(oNew), OBJECT_INVALID, GetTag(oNew), TRUE);
+        }
+        oArea = GetNextArea();
+    }
 }
 
 // This "should" delete all databases used by "vanilla" framework
@@ -577,10 +616,12 @@ void RestartCoreFramework()
         DelayCommand(2.5f, ExecuteScript(ON_MODULE_PRELOAD, oModule));
     }
 
-    DelayCommand(3.0f, SetLocalInt(oModule, CORE_RESTARTING, FALSE));
-    DelayCommand(3.0f, SetLocalInt(oModule, CORE_INITIALIZED, FALSE));
+    DelayCommand(3.0f, _RecreateObjects());
 
-    DelayCommand(6.0f, InitializeCoreFramework());
+    DelayCommand(3.5f, SetLocalInt(oModule, CORE_RESTARTING, FALSE));
+    DelayCommand(3.5f, SetLocalInt(oModule, CORE_INITIALIZED, FALSE));
+
+    DelayCommand(6.5f, InitializeCoreFramework());
 }
 
 // ----- Event Script Sources --------------------------------------------------
@@ -609,18 +650,21 @@ void RemoveScriptSource(object oTarget, object oSource = OBJECT_SELF)
 
 sqlquery GetScriptSources(object oTarget)
 {
-    sqlquery q = SqlPrepareQueryModule("SELECT source_id FROM event_sources WHERE object_id = @object_id;");
+    sqlquery q =
+        SqlPrepareQueryModule("SELECT source_id FROM event_sources WHERE object_id = @object_id;");
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     return q;
 }
 
 void SetSourceBlacklisted(object oSource, int bBlacklist = TRUE, object oTarget = OBJECT_SELF)
 {
-    Debug((bBlacklist ? "Blacklisting" : "Unblacklisting") + " script source " + GetDebugPrefix(oSource),
+    Debug((bBlacklist ? "Blacklisting" : "Unblacklisting") + " script source " +
+              GetDebugPrefix(oSource),
           DEBUG_LEVEL_DEBUG, oTarget);
     string sSql =
         bBlacklist ? "INSERT OR IGNORE INTO event_blacklists VALUES (@object_id, @source_id);"
-                   : "DELETE FROM event_blacklists WHERE object_id = @object_id AND source_id = @source_id;";
+                   : "DELETE FROM event_blacklists WHERE object_id = @object_id AND source_id = " +
+                         "@source_id;";
     sqlquery q = SqlPrepareQueryModule(sSql);
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     SqlBindString(q, "@source_id", ObjectToString(oSource));
@@ -638,8 +682,8 @@ int GetSourceBlacklisted(object oSource, object oTarget = OBJECT_SELF)
 
 sqlquery GetSourceBlacklist(object oTarget)
 {
-    sqlquery q =
-        SqlPrepareQueryModule("SELECT source_id FROM event_blacklists WHERE object_id = @object_id;");
+    sqlquery q = SqlPrepareQueryModule(
+        "SELECT source_id FROM event_blacklists WHERE object_id = @object_id;");
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     return q;
 }
@@ -663,7 +707,8 @@ object GetEventTriggeredBy()
 
 void SetEventTriggeredBy(object oObject = OBJECT_INVALID)
 {
-    string sObject = GetIsObjectValid(oObject) ? ObjectToString(oObject) : GetScriptParam(EVENT_TRIGGERED);
+    string sObject =
+        GetIsObjectValid(oObject) ? ObjectToString(oObject) : GetScriptParam(EVENT_TRIGGERED);
     SetScriptParam(EVENT_TRIGGERED, sObject);
 }
 
@@ -795,8 +840,8 @@ void RegisterEventScript(object oTarget, string sEvent, string sScripts, float f
         (fPriority != EVENT_PRIORITY_FIRST && fPriority != EVENT_PRIORITY_LAST &&
          fPriority != EVENT_PRIORITY_ONLY && fPriority != EVENT_PRIORITY_DEFAULT))
     {
-        CriticalError("Could not register scripts: \n    Source: " + sTarget + "\n    Event: " + sEvent +
-                          "\n    Scripts: " + sScripts + "\n    Priority: " + sPriority +
+        CriticalError("Could not register scripts: \n    Source: " + sTarget + "\n    Event: " +
+                          sEvent + "\n    Scripts: " + sScripts + "\n    Priority: " + sPriority +
                           "\n    Error: priority outside expected range",
                       oTarget);
         return;
@@ -877,7 +922,8 @@ void ExpandEventScripts(object oTarget, string sEvent, float fDefaultPriority)
     DeleteLocalString(oTarget, sEvent);
 }
 
-int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT_SELF, int bLocalOnly = FALSE)
+int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT_SELF,
+             int bLocalOnly = FALSE)
 {
     // Which object initiated the event?
     if (!GetIsObjectValid(oInit))
@@ -918,7 +964,8 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
         }
 
         // Expand local event scripts for each source
-        q = SqlPrepareQueryModule("SELECT source_id FROM event_sources WHERE object_id = @object_id;");
+        q = SqlPrepareQueryModule(
+            "SELECT source_id FROM event_sources WHERE object_id = @object_id;");
 
         // Creatures maintain their own list of script sources. All other objects
         // source their scripts from the object initiating the event.
@@ -947,9 +994,9 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
     if (bLocalOnly)
     {
         // Get scripts from the object itself only.
-        q = SqlPrepareQueryModule("SELECT plugin_id, object_id, script, priority FROM v_active_scripts " +
-                                  "WHERE object_id = @object_id AND event = @event " +
-                                  "ORDER BY priority DESC;");
+        q = SqlPrepareQueryModule(
+            "SELECT plugin_id, object_id, script, priority FROM v_active_scripts " +
+            "WHERE object_id = @object_id AND event = @event " + "ORDER BY priority DESC;");
     }
     else
     {
@@ -980,8 +1027,9 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
             break;
         }
 
-        Debug("Executing event script " + sScript + " from " + GetDebugPrefix(StringToObject(sSource)) +
-                  " with a priority of " + PriorityToString(fPriority),
+        Debug("Executing event script " + sScript + " from " +
+                  GetDebugPrefix(StringToObject(sSource)) + " with a priority of " +
+                  PriorityToString(fPriority),
               DEBUG_LEVEL_DEBUG, oSelf);
 
         SetScriptParam(EVENT_LAST, sEvent);     // Current event
@@ -1450,7 +1498,8 @@ object GetPlugin(string sPlugin)
         return OBJECT_INVALID;
     }
 
-    sqlquery q = SqlPrepareQueryModule("SELECT object_id FROM event_plugins WHERE plugin_id = @plugin_id;");
+    sqlquery q =
+        SqlPrepareQueryModule("SELECT object_id FROM event_plugins WHERE plugin_id = @plugin_id;");
     SqlBindString(q, "@plugin_id", sPlugin);
     return SqlStep(q) ? StringToObject(SqlGetString(q, 0)) : OBJECT_INVALID;
 }
@@ -1500,7 +1549,8 @@ object CreatePlugin(string sPlugin)
 
 int GetPluginStatus(object oPlugin)
 {
-    sqlquery q = SqlPrepareQueryModule("SELECT active FROM event_plugins WHERE object_id = @object_id;");
+    sqlquery q =
+        SqlPrepareQueryModule("SELECT active FROM event_plugins WHERE object_id = @object_id;");
     SqlBindString(q, "@object_id", ObjectToString(oPlugin));
     return SqlStep(q) ? SqlGetInt(q, 0) : PLUGIN_STATUS_MISSING;
 }
@@ -1589,7 +1639,8 @@ void UnloadPlugin(string sPlugin)
     for (n; n < CountList(sTables); n++)
     {
         string sTable = "event_" + GetListItem(sTables, n);
-        sqlquery q    = SqlPrepareQueryModule("DELETE FROM " + sTable + " WHERE object_id = @object_id;");
+        sqlquery q =
+            SqlPrepareQueryModule("DELETE FROM " + sTable + " WHERE object_id = @object_id;");
         SqlBindString(q, "@object_id", ObjectToString(oPlugin));
         SqlStep(q);
     }
@@ -1638,7 +1689,8 @@ void ReloadPlugin(string sPlugin, string sLibrary = "")
 
 string GetPluginID(object oPlugin)
 {
-    sqlquery q = SqlPrepareQueryModule("SELECT plugin_id FROM event_plugins WHERE object_id = @object_id;");
+    sqlquery q =
+        SqlPrepareQueryModule("SELECT plugin_id FROM event_plugins WHERE object_id = @object_id;");
     SqlBindString(q, "@object_id", ObjectToString(oPlugin));
     return SqlStep(q) ? SqlGetString(q, 0) : "";
 }
@@ -1659,7 +1711,8 @@ object GetCurrentPlugin()
 
 void SetCurrentPlugin(object oPlugin = OBJECT_INVALID)
 {
-    string sPlugin = GetIsObjectValid(oPlugin) ? ObjectToString(oPlugin) : GetScriptParam(PLUGIN_LAST);
+    string sPlugin =
+        GetIsObjectValid(oPlugin) ? ObjectToString(oPlugin) : GetScriptParam(PLUGIN_LAST);
     SetScriptParam(PLUGIN_LAST, sPlugin);
 }
 
@@ -1676,7 +1729,8 @@ void SetCurrentTimer(int nTimerID = 0)
     SetScriptParam(TIMER_LAST, sTimerID);
 }
 
-int CreateEventTimer(object oTarget, string sEvent, float fInterval, int nIterations = 0, float fJitter = 0.0)
+int CreateEventTimer(object oTarget, string sEvent, float fInterval, int nIterations = 0,
+                     float fJitter = 0.0)
 {
     return CreateTimer(oTarget, sEvent, fInterval, nIterations, fJitter, CORE_HOOK_TIMERS);
 }
