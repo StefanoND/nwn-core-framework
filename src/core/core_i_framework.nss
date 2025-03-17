@@ -487,54 +487,74 @@ void _DeleteDebug()
 // Unhooks all Events
 void _DeleteEvents()
 {
-    // Delete all GetModule() variables, including DataPoints
-    DeleteModuleVariables();
-
-    object oArea = GetFirstArea();
-    while (GetIsObjectValid(oArea))
+    if (AUTO_HOOK_AREA_EVENTS || AUTO_HOOK_OBJECT_EVENTS)
     {
-        int i = 0;
-
-        object oObject = GetFirstObjectInArea(oArea);
-        while (GetIsObjectValid(oObject))
+        object oArea = GetFirstArea();
+        while (GetIsObjectValid(oArea))
         {
-            UnHookObjectEvents(oObject);
-            DeleteLocalJson(oObject, "Ref:*");
-            DeleteLocalVariables(oObject, VARIABLE_TYPE_ALL, "LIB_INIT:*");
-
-            // This will delete all DataPoint items
-            if (GetResRef(oObject) == "x1_hen_inv")
+            if (AUTO_HOOK_OBJECT_EVENTS)
             {
-                DestroyObject(oObject);
-            }
+                DeleteLocalJson(oArea, "Ref:*");
+                DeleteLocalVariables(oArea, VARIABLE_TYPE_ALL, "LIB_INIT:*");
+                int i = 0;
 
-            if (GetObjectType(oObject) != OBJECT_TYPE_CREATURE &&
-                GetObjectType(oObject) != OBJECT_TYPE_ITEM)
+                object oObject = GetFirstObjectInArea(oArea);
+                int nType      = GetObjectType(oObject);
+                while (GetIsObjectValid(oObject))
+                {
+                    if (AUTO_HOOK_OBJECT_EVENTS & nType && !GetLocalInt(oObject, SKIP_AUTO_HOOK))
+                    {
+                        UnHookObjectEvents(oObject);
+                    }
+                    DeleteLocalJson(oObject, "Ref:*");
+                    DeleteLocalVariables(oObject, VARIABLE_TYPE_ALL, "LIB_INIT:*");
+
+                    // This will delete all DataPoint items
+                    if (GetResRef(oObject) == "x1_hen_inv")
+                    {
+                        UnHookObjectEvents(oObject);
+                        DestroyObject(oObject);
+                    }
+
+                    if (GetObjectType(oObject) != OBJECT_TYPE_CREATURE &&
+                        GetObjectType(oObject) != OBJECT_TYPE_ITEM)
+                    {
+                        // SaveLocalVariable to create later
+                        SetLocalObject(oArea, "ObjectObjN" + IntToString(i), oObject);
+                        SetLocalString(oArea, "ObjectTagN" + IntToString(i), GetTag(oObject));
+                        SetLocalString(oArea, "ObjectResRefN" + IntToString(i), GetResRef(oObject));
+                        SetLocalLocation(oArea, "ObjectLocN" + IntToString(i),
+                                         GetLocation(oObject));
+                        SetLocalInt(oArea, "ObjectTypeN" + IntToString(i), GetObjectType(oObject));
+                        SetLocalInt(oArea, "ObjectNSize", i);
+                        UnHookObjectEvents(oObject);
+                        DestroyObject(oObject);
+                        i++;
+                    }
+
+                    oObject = GetNextObjectInArea(oArea);
+                }
+            }
+            if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK))
             {
-                // SaveLocalVariable to create later
-                // SetLocalInt(oArea, "ObjectN" + IntToString(i), GetObjectType(oObject));
-                SetLocalString(oArea, "ObjectN" + IntToString(i), GetTag(oObject));
-                SetLocalObject(oArea, "ObjectN" + IntToString(i), oObject);
-                SetLocalLocation(oArea, "ObjectN" + IntToString(i), GetLocation(oObject));
-                SetLocalInt(oArea, "ObjectNSize", i);
-                DestroyObject(oObject);
-                i++;
+                UnHookObjectEvents(oArea);
             }
-
-            oObject = GetNextObjectInArea(oArea);
+            oArea = GetNextArea();
         }
-
-        UnHookObjectEvents(oArea);
-
-        oArea = GetNextArea();
     }
-    UnHookObjectEvents(GetModule());
+
+    // Delete all GetModule() variables, including DataPoints
+    if (AUTO_HOOK_MODULE_EVENTS)
+    {
+        DeleteModuleVariables();
+        UnHookObjectEvents(GetModule());
+    }
 }
 
 void _RecreateObjects()
 {
-    int i, nSize;
-    string sTag;
+    int i, nSize, nType;
+    string sTag, sResRef;
     object oNew;
     location lLocation;
 
@@ -545,10 +565,13 @@ void _RecreateObjects()
 
         for (i = 0; i < nSize; i++)
         {
-            oNew      = GetLocalObject(oArea, "ObjectN" + IntToString(i));
-            sTag      = GetLocalString(oArea, "ObjectN" + IntToString(i));
-            lLocation = GetLocalLocation(oArea, "ObjectN" + IntToString(i));
-            CopyObject(oNew, GetLocation(oNew), OBJECT_INVALID, GetTag(oNew), TRUE);
+            oNew      = GetLocalObject(oArea, "ObjectObjN" + IntToString(i));
+            sTag      = GetLocalString(oArea, "ObjectTagN" + IntToString(i));
+            sResRef   = GetLocalString(oArea, "ObjectResRefN" + IntToString(i));
+            lLocation = GetLocalLocation(oArea, "ObjectLocN" + IntToString(i));
+            nType     = GetLocalInt(oArea, "ObjectTypeN" + IntToString(i));
+            CreateObject(nType, sResRef, lLocation);
+            // CopyObject(oNew, GetLocation(oNew), OBJECT_INVALID, GetTag(oNew), TRUE);
         }
         oArea = GetNextArea();
     }
@@ -1634,6 +1657,8 @@ void UnloadPlugin(string sPlugin)
         return;
     }
 
+    Debug("Unloading plugin " + sPlugin, DEBUG_LEVEL_DEBUG, oPlugin);
+
     string sTables = "plugins,scripts,sources,blacklists";
     int n;
     for (n; n < CountList(sTables); n++)
@@ -1665,26 +1690,34 @@ void ReloadPlugin(string sPlugin, string sLibrary = "")
         Error("Cannot unload plugin: plugin missing", oPlugin);
         return;
     }
+    Debug("Reloading plugin" + sPlugin, DEBUG_LEVEL_DEBUG, oPlugin);
 
     string sLibraryList;
 
     if (sLibrary == "")
     {
         sLibraryList = GetLocalString(oPlugin, LIB_LIST);
+        Debug("Found libraries: " + sLibraryList, DEBUG_LEVEL_DEBUG, oPlugin);
     }
     else
     {
         sLibraryList = sLibrary;
+        Debug("Using libraries: " + sLibraryList, DEBUG_LEVEL_DEBUG, oPlugin);
     }
 
     UnloadPlugin(sPlugin);
 
-    if (sLibraryList != "")
+    if (!GetIfPluginExists(sPlugin))
     {
+        object oNewPlugin = CreatePlugin(sPlugin);
+
         LoadLibrariesByPattern(sLibraryList);
+
+        Debug("Plugin " + sPlugin + " reloaded.", DEBUG_LEVEL_DEBUG, oNewPlugin);
+        return;
     }
 
-    Debug("Plugin " + sPlugin + " reloaded.", DEBUG_LEVEL_DEBUG, oPlugin);
+    Error("Cannot reload plugin: plugin missing", oPlugin);
 }
 
 string GetPluginID(object oPlugin)
