@@ -18,7 +18,7 @@
 /// @note This is a system function that need not be used by the builder.
 void InitializeCoreFramework();
 
-/// @brief Restart the Core Framework pre-modload and modload events won't refire.
+/// @brief Restart the Core Framework. Pre-modload and modload events won't refire.
 /// @note This is still prototype.
 /// @observations Placeables and the Module doesn't get their scripts reapplied.
 void RestartCoreFramework();
@@ -523,8 +523,7 @@ void _DeleteEvents()
                         SetLocalObject(oArea, "ObjectObjN" + IntToString(i), oObject);
                         SetLocalString(oArea, "ObjectTagN" + IntToString(i), GetTag(oObject));
                         SetLocalString(oArea, "ObjectResRefN" + IntToString(i), GetResRef(oObject));
-                        SetLocalLocation(oArea, "ObjectLocN" + IntToString(i),
-                                         GetLocation(oObject));
+                        SetLocalLocation(oArea, "ObjectLocN" + IntToString(i), GetLocation(oObject));
                         SetLocalInt(oArea, "ObjectTypeN" + IntToString(i), GetObjectType(oObject));
                         SetLocalInt(oArea, "ObjectNSize", i);
                         UnHookObjectEvents(oObject);
@@ -681,14 +680,13 @@ sqlquery GetScriptSources(object oTarget)
 
 void SetSourceBlacklisted(object oSource, int bBlacklist = TRUE, object oTarget = OBJECT_SELF)
 {
-    Debug((bBlacklist ? "Blacklisting" : "Unblacklisting") + " script source " +
-              GetDebugPrefix(oSource),
+    Debug((bBlacklist ? "Blacklisting" : "Unblacklisting") + " script source " + GetDebugPrefix(oSource),
           DEBUG_LEVEL_DEBUG, oTarget);
-    string sSql =
-        bBlacklist ? "INSERT OR IGNORE INTO event_blacklists VALUES (@object_id, @source_id);"
-                   : "DELETE FROM event_blacklists WHERE object_id = @object_id AND source_id = " +
-                         "@source_id;";
-    sqlquery q = SqlPrepareQueryModule(sSql);
+    string sSql = bBlacklist
+                      ? "INSERT OR IGNORE INTO event_blacklists VALUES (@object_id, @source_id);"
+                      : "DELETE FROM event_blacklists WHERE object_id = @object_id AND source_id = " +
+                            "@source_id;";
+    sqlquery q  = SqlPrepareQueryModule(sSql);
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     SqlBindString(q, "@source_id", ObjectToString(oSource));
     SqlStep(q);
@@ -705,8 +703,8 @@ int GetSourceBlacklisted(object oSource, object oTarget = OBJECT_SELF)
 
 sqlquery GetSourceBlacklist(object oTarget)
 {
-    sqlquery q = SqlPrepareQueryModule(
-        "SELECT source_id FROM event_blacklists WHERE object_id = @object_id;");
+    sqlquery q =
+        SqlPrepareQueryModule("SELECT source_id FROM event_blacklists WHERE object_id = @object_id;");
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     return q;
 }
@@ -863,8 +861,8 @@ void RegisterEventScript(object oTarget, string sEvent, string sScripts, float f
         (fPriority != EVENT_PRIORITY_FIRST && fPriority != EVENT_PRIORITY_LAST &&
          fPriority != EVENT_PRIORITY_ONLY && fPriority != EVENT_PRIORITY_DEFAULT))
     {
-        CriticalError("Could not register scripts: \n    Source: " + sTarget + "\n    Event: " +
-                          sEvent + "\n    Scripts: " + sScripts + "\n    Priority: " + sPriority +
+        CriticalError("Could not register scripts: \n    Source: " + sTarget + "\n    Event: " + sEvent +
+                          "\n    Scripts: " + sScripts + "\n    Priority: " + sPriority +
                           "\n    Error: priority outside expected range",
                       oTarget);
         return;
@@ -987,8 +985,7 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
         }
 
         // Expand local event scripts for each source
-        q = SqlPrepareQueryModule(
-            "SELECT source_id FROM event_sources WHERE object_id = @object_id;");
+        q = SqlPrepareQueryModule("SELECT source_id FROM event_sources WHERE object_id = @object_id;");
 
         // Creatures maintain their own list of script sources. All other objects
         // source their scripts from the object initiating the event.
@@ -1050,9 +1047,8 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
             break;
         }
 
-        Debug("Executing event script " + sScript + " from " +
-                  GetDebugPrefix(StringToObject(sSource)) + " with a priority of " +
-                  PriorityToString(fPriority),
+        Debug("Executing event script " + sScript + " from " + GetDebugPrefix(StringToObject(sSource)) +
+                  " with a priority of " + PriorityToString(fPriority),
               DEBUG_LEVEL_DEBUG, oSelf);
 
         SetScriptParam(EVENT_LAST, sEvent);     // Current event
@@ -1572,8 +1568,7 @@ object CreatePlugin(string sPlugin)
 
 int GetPluginStatus(object oPlugin)
 {
-    sqlquery q =
-        SqlPrepareQueryModule("SELECT active FROM event_plugins WHERE object_id = @object_id;");
+    sqlquery q = SqlPrepareQueryModule("SELECT active FROM event_plugins WHERE object_id = @object_id;");
     SqlBindString(q, "@object_id", ObjectToString(oPlugin));
     return SqlStep(q) ? SqlGetInt(q, 0) : PLUGIN_STATUS_MISSING;
 }
@@ -1664,8 +1659,7 @@ void UnloadPlugin(string sPlugin)
     for (n; n < CountList(sTables); n++)
     {
         string sTable = "event_" + GetListItem(sTables, n);
-        sqlquery q =
-            SqlPrepareQueryModule("DELETE FROM " + sTable + " WHERE object_id = @object_id;");
+        sqlquery q = SqlPrepareQueryModule("DELETE FROM " + sTable + " WHERE object_id = @object_id;");
         SqlBindString(q, "@object_id", ObjectToString(oPlugin));
         SqlStep(q);
     }
@@ -1744,8 +1738,7 @@ object GetCurrentPlugin()
 
 void SetCurrentPlugin(object oPlugin = OBJECT_INVALID)
 {
-    string sPlugin =
-        GetIsObjectValid(oPlugin) ? ObjectToString(oPlugin) : GetScriptParam(PLUGIN_LAST);
+    string sPlugin = GetIsObjectValid(oPlugin) ? ObjectToString(oPlugin) : GetScriptParam(PLUGIN_LAST);
     SetScriptParam(PLUGIN_LAST, sPlugin);
 }
 
