@@ -148,8 +148,8 @@ void RegisterEventScript(object oTarget, string sEvent, string sScripts, float f
 ///     - EVENT_STATE_OK: all queued scripts executed successfully
 ///     - EVENT_STATE_ABORT: a script cancelled remaining scripts in the queue
 ///     - EVENT_STATE_DENIED: a script specified that the event should cancelled
-int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT_SELF,
-             int bLocalOnly = FALSE);
+int RunEvent(
+    string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT_SELF, int bLocalOnly = FALSE);
 
 /// @brief Run an item event (e.g., OnAcquireItem) first on the module, then
 ///     locally on the item. This allows oItem to specify its own scripts for
@@ -292,8 +292,8 @@ void SetCurrentTimer(int nTimerID = 0);
 ///     fInterval between executions. Leave at 0.0 for no jitter.
 /// @returns the ID of the timer. Save this so it can be used to start, stop, or
 ///     kill the timer later.
-int CreateEventTimer(object oTarget, string sEvent, float fInterval, int nIterations = 0,
-                     float fJitter = 0.0);
+int CreateEventTimer(
+    object oTarget, string sEvent, float fInterval, int nIterations = 0, float fJitter = 0.0);
 
 // ----- Miscellaneous ---------------------------------------------------------
 
@@ -310,22 +310,13 @@ int GetIsPCObject(object oObject);
 void InitializeCoreFramework()
 {
     object oModule = GetModule();
-    if (GetLocalInt(oModule, CORE_INITIALIZED) || GetLocalInt(oModule, CORE_RESTARTING))
-    {
-        return;
-    }
+    if (GetLocalInt(oModule, CORE_INITIALIZED) || GetLocalInt(oModule, CORE_RESTARTING)) return;
 
     SetLocalInt(oModule, CORE_INITIALIZED, TRUE);
 
-    if (ON_MODULE_PRELOAD != "")
-    {
-        ExecuteScript(ON_MODULE_PRELOAD, oModule);
-    }
+    if (ON_MODULE_PRELOAD != "") ExecuteScript(ON_MODULE_PRELOAD, oModule);
 
-    if (AUTO_HOOK_MODULE_EVENTS)
-    {
-        HookObjectEvents(oModule, FALSE);
-    }
+    if (AUTO_HOOK_MODULE_EVENTS) HookObjectEvents(oModule, FALSE);
 
     if (AUTO_HOOK_AREA_EVENTS || AUTO_HOOK_OBJECT_EVENTS)
     {
@@ -333,22 +324,17 @@ void InitializeCoreFramework()
         while (GetIsObjectValid(oArea))
         {
             if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK))
-            {
                 HookObjectEvents(oArea, !AUTO_HOOK_AREA_HEARTBEAT_EVENT);
-            }
 
             if (AUTO_HOOK_OBJECT_EVENTS)
             {
-                // Once .35 is released, we can use the nObjectFilter parameter.
-                object oObject = GetFirstObjectInArea(oArea);
+                object oObject = GetFirstObjectInArea(oArea, AUTO_HOOK_OBJECT_EVENTS);
                 while (GetIsObjectValid(oObject))
                 {
-                    int nType = GetObjectType(oObject);
-                    if (AUTO_HOOK_OBJECT_EVENTS & nType && !GetLocalInt(oObject, SKIP_AUTO_HOOK))
-                    {
-                        HookObjectEvents(oObject, !(AUTO_HOOK_OBJECT_HEARTBEAT_EVENT & nType));
-                    }
-                    oObject = GetNextObjectInArea(oArea);
+                    if (!GetLocalInt(oObject, SKIP_AUTO_HOOK))
+                        HookObjectEvents(
+                            oObject, !(AUTO_HOOK_OBJECT_HEARTBEAT_EVENT & GetObjectType(oObject)));
+                    oObject = GetNextObjectInArea(oArea, AUTO_HOOK_OBJECT_EVENTS);
                 }
             }
 
@@ -359,6 +345,7 @@ void InitializeCoreFramework()
     // Start debugging
     SetDebugLevel(INITIALIZATION_DEBUG_LEVEL, oModule);
     SetDebugLogging(DEBUG_LOGGING);
+    SetLogfileDebugLevel(LOGFILE_DEBUG_LEVEL);
     SetDebugPrefix(HexColorString("[Module]", COLOR_CYAN), oModule);
     SetDebugPrefix(HexColorString("[Events]", COLOR_CYAN), EVENTS);
     SetDebugPrefix(HexColorString("[Plugins]", COLOR_CYAN), PLUGINS);
@@ -386,19 +373,19 @@ void InitializeCoreFramework()
     Debug("Initializing Core Framework...");
     Debug("Creating database tables...");
 
-    SqlCreateTableModule("event_plugins", "plugin_id TEXT NOT NULL PRIMARY KEY, " +
-                                              "object_id TEXT NOT NULL UNIQUE, " +
-                                              "active BOOLEAN DEFAULT 0");
+    SqlCreateTableModule("event_plugins",
+        "plugin_id TEXT NOT NULL PRIMARY KEY, " + "object_id TEXT NOT NULL UNIQUE, " +
+            "active BOOLEAN DEFAULT 0");
 
-    SqlCreateTableModule("event_sources", "object_id TEXT NOT NULL, source_id TEXT NOT NULL, " +
-                                              "UNIQUE(object_id, source_id)");
+    SqlCreateTableModule("event_sources",
+        "object_id TEXT NOT NULL, source_id TEXT NOT NULL, " + "UNIQUE(object_id, source_id)");
 
-    SqlCreateTableModule("event_scripts", "object_id TEXT NOT NULL, event TEXT NOT NULL, " +
-                                              "script TEXT NOT NULL, " +
-                                              "priority REAL NOT NULL DEFAULT 5.0");
+    SqlCreateTableModule("event_scripts",
+        "object_id TEXT NOT NULL, event TEXT NOT NULL, " + "script TEXT NOT NULL, " +
+            "priority REAL NOT NULL DEFAULT 5.0");
 
-    SqlCreateTableModule("event_blacklists", "object_id TEXT NOT NULL, source_id TEXT NOT NULL, " +
-                                                 "UNIQUE(object_id, source_id)");
+    SqlCreateTableModule("event_blacklists",
+        "object_id TEXT NOT NULL, source_id TEXT NOT NULL, " + "UNIQUE(object_id, source_id)");
 
     SqlExecModule("CREATE VIEW IF NOT EXISTS v_active_plugins AS " +
                   "SELECT plugin_id, object_id FROM event_plugins WHERE active = 1;");
@@ -416,17 +403,13 @@ void InitializeCoreFramework()
         {
             sqlquery q = GetPlugins();
             while (SqlStep(q))
-            {
                 ActivatePlugin(SqlGetString(q, 0));
-            }
         }
         else
         {
             int i, nCount = CountList(INSTALLED_PLUGINS);
             for (i = 0; i < nCount; i++)
-            {
                 ActivatePlugin(GetListItem(INSTALLED_PLUGINS, i));
-            }
         }
     }
 
@@ -443,17 +426,13 @@ void _UnloadPlugins()
     {
         sqlquery q = GetPlugins();
         while (SqlStep(q))
-        {
             UnloadPlugin(SqlGetString(q, 0));
-        }
     }
     else
     {
         int i, nCount = CountList(INSTALLED_PLUGINS);
         for (i = 0; i < nCount; i++)
-        {
             UnloadPlugin(GetListItem(INSTALLED_PLUGINS, i));
-        }
     }
 
     SetScriptParam("LIB_LIBRARY", "");
@@ -503,9 +482,7 @@ void _DeleteEvents()
                 while (GetIsObjectValid(oObject))
                 {
                     if (AUTO_HOOK_OBJECT_EVENTS & nType && !GetLocalInt(oObject, SKIP_AUTO_HOOK))
-                    {
                         UnHookObjectEvents(oObject);
-                    }
                     DeleteLocalJson(oObject, "Ref:*");
                     DeleteLocalVariables(oObject, VARIABLE_TYPE_ALL, "LIB_INIT:*");
 
@@ -534,10 +511,7 @@ void _DeleteEvents()
                     oObject = GetNextObjectInArea(oArea);
                 }
             }
-            if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK))
-            {
-                UnHookObjectEvents(oArea);
-            }
+            if (AUTO_HOOK_AREA_EVENTS && !GetLocalInt(oArea, SKIP_AUTO_HOOK)) UnHookObjectEvents(oArea);
             oArea = GetNextArea();
         }
     }
@@ -606,10 +580,7 @@ void RestartCoreFramework()
 {
     object oModule = GetModule();
 
-    if (GetLocalInt(oModule, CORE_RESTARTING))
-    {
-        return;
-    }
+    if (GetLocalInt(oModule, CORE_RESTARTING)) return;
 
     SpeakString("Restarting Core Framework", TALKVOLUME_SHOUT);
 
@@ -633,10 +604,7 @@ void RestartCoreFramework()
     // having access to "CORE_RESTARTING", it's up to them if their script will do something
     // about it or not
     // Should probably default to not run (aka return;) the script if the system is restarting
-    if (ON_MODULE_PRELOAD != "")
-    {
-        DelayCommand(2.5f, ExecuteScript(ON_MODULE_PRELOAD, oModule));
-    }
+    if (ON_MODULE_PRELOAD != "") DelayCommand(2.5f, ExecuteScript(ON_MODULE_PRELOAD, oModule));
 
     DelayCommand(3.0f, _RecreateObjects());
 
@@ -663,8 +631,8 @@ void AddScriptSource(object oTarget, object oSource = OBJECT_SELF)
 void RemoveScriptSource(object oTarget, object oSource = OBJECT_SELF)
 {
     Debug("Removing script source " + GetDebugPrefix(oSource), DEBUG_LEVEL_DEBUG, oTarget);
-    sqlquery q = SqlPrepareQueryModule("DELETE FROM event_sources WHERE " +
-                                       "object_id = @object_id AND source_id = @source_id;");
+    sqlquery q = SqlPrepareQueryModule(
+        "DELETE FROM event_sources WHERE " + "object_id = @object_id AND source_id = @source_id;");
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     SqlBindString(q, "@source_id", ObjectToString(oSource));
     SqlStep(q);
@@ -681,12 +649,13 @@ sqlquery GetScriptSources(object oTarget)
 void SetSourceBlacklisted(object oSource, int bBlacklist = TRUE, object oTarget = OBJECT_SELF)
 {
     Debug((bBlacklist ? "Blacklisting" : "Unblacklisting") + " script source " + GetDebugPrefix(oSource),
-          DEBUG_LEVEL_DEBUG, oTarget);
-    string sSql = bBlacklist
-                      ? "INSERT OR IGNORE INTO event_blacklists VALUES (@object_id, @source_id);"
-                      : "DELETE FROM event_blacklists WHERE object_id = @object_id AND source_id = " +
-                            "@source_id;";
-    sqlquery q  = SqlPrepareQueryModule(sSql);
+        DEBUG_LEVEL_DEBUG,
+        oTarget);
+    string sSql =
+        bBlacklist ?
+            "INSERT OR IGNORE INTO event_blacklists VALUES (@object_id, @source_id);" :
+            "DELETE FROM event_blacklists WHERE object_id = @object_id AND source_id = " + "@source_id;";
+    sqlquery q = SqlPrepareQueryModule(sSql);
     SqlBindString(q, "@object_id", ObjectToString(oTarget));
     SqlBindString(q, "@source_id", ObjectToString(oSource));
     SqlStep(q);
@@ -711,20 +680,12 @@ sqlquery GetSourceBlacklist(object oTarget)
 
 // ----- Event Management ------------------------------------------------------
 
-string GetCurrentEvent()
-{
-    return GetScriptParam(EVENT_LAST);
-}
+string GetCurrentEvent() { return GetScriptParam(EVENT_LAST); }
 
 void SetCurrentEvent(string sEvent = "")
-{
-    SetScriptParam(EVENT_LAST, sEvent != "" ? sEvent : GetCurrentEvent());
-}
+{ SetScriptParam(EVENT_LAST, sEvent != "" ? sEvent : GetCurrentEvent()); }
 
-object GetEventTriggeredBy()
-{
-    return StringToObject(GetScriptParam(EVENT_TRIGGERED));
-}
+object GetEventTriggeredBy() { return StringToObject(GetScriptParam(EVENT_TRIGGERED)); }
 
 void SetEventTriggeredBy(object oObject = OBJECT_INVALID)
 {
@@ -736,82 +697,52 @@ void SetEventTriggeredBy(object oObject = OBJECT_INVALID)
 int GetEventDebugLevel(string sEvent, object oTarget = OBJECT_INVALID)
 {
     int nLevel = GetLocalInt(oTarget, EVENT_DEBUG + sEvent);
-    if (!nLevel)
-    {
-        nLevel = GetLocalInt(EVENTS, EVENT_DEBUG + sEvent);
-    }
+    if (!nLevel) nLevel = GetLocalInt(EVENTS, EVENT_DEBUG + sEvent);
 
     return clamp(nLevel, DEBUG_LEVEL_NONE, DEBUG_LEVEL_DEBUG);
 }
 
 void SetEventDebugLevel(string sEvent, int nLevel, object oTarget = OBJECT_INVALID)
 {
-    if (!GetIsObjectValid(oTarget))
-    {
-        oTarget = EVENTS;
-    }
+    if (!GetIsObjectValid(oTarget)) oTarget = EVENTS;
 
     SetLocalInt(oTarget, EVENT_DEBUG + sEvent, nLevel);
 }
 
 void DeleteEventDebugLevel(string sEvent, object oTarget = OBJECT_INVALID)
 {
-    if (!GetIsObjectValid(oTarget))
-    {
-        oTarget = EVENTS;
-    }
+    if (!GetIsObjectValid(oTarget)) oTarget = EVENTS;
 
     DeleteLocalInt(oTarget, EVENT_DEBUG + sEvent);
 }
 
 int GetEventState(string sEvent = "")
 {
-    if (sEvent == "")
-    {
-        sEvent = GetCurrentEvent();
-    }
+    if (sEvent == "") sEvent = GetCurrentEvent();
 
     return GetLocalInt(EVENTS, EVENT_STATE + sEvent);
 }
 
 void SetEventState(int nState, string sEvent = "")
 {
-    if (sEvent == "")
-    {
-        sEvent = GetCurrentEvent();
-    }
+    if (sEvent == "") sEvent = GetCurrentEvent();
     nState = (GetLocalInt(EVENTS, EVENT_STATE + sEvent) | nState);
     SetLocalInt(EVENTS, EVENT_STATE + sEvent, nState);
 }
 
 void ClearEventState(string sEvent = "")
 {
-    if (sEvent == "")
-    {
-        sEvent = GetCurrentEvent();
-    }
+    if (sEvent == "") sEvent = GetCurrentEvent();
     DeleteLocalInt(EVENTS, EVENT_STATE + sEvent);
 }
 
 // Private function for RegisterEventScript().
 string PriorityToString(float fPriority)
 {
-    if (fPriority == EVENT_PRIORITY_FIRST)
-    {
-        return "first";
-    }
-    if (fPriority == EVENT_PRIORITY_LAST)
-    {
-        return "last";
-    }
-    if (fPriority == EVENT_PRIORITY_ONLY)
-    {
-        return "only";
-    }
-    if (fPriority == EVENT_PRIORITY_DEFAULT)
-    {
-        return "default";
-    }
+    if (fPriority == EVENT_PRIORITY_FIRST) return "first";
+    if (fPriority == EVENT_PRIORITY_LAST) return "last";
+    if (fPriority == EVENT_PRIORITY_ONLY) return "only";
+    if (fPriority == EVENT_PRIORITY_DEFAULT) return "default";
 
     return FloatToString(fPriority, 0, 1);
 }
@@ -819,69 +750,66 @@ string PriorityToString(float fPriority)
 // Private function for RegisterEventScript().
 float StringToPriority(string sPriority, float fDefaultPriority)
 {
-    if (sPriority == "first")
-    {
-        return EVENT_PRIORITY_FIRST;
-    }
-    if (sPriority == "last")
-    {
-        return EVENT_PRIORITY_LAST;
-    }
-    if (sPriority == "only")
-    {
-        return EVENT_PRIORITY_ONLY;
-    }
-    if (sPriority == "default")
-    {
-        return EVENT_PRIORITY_DEFAULT;
-    }
+    if (sPriority == "first") return EVENT_PRIORITY_FIRST;
+    if (sPriority == "last") return EVENT_PRIORITY_LAST;
+    if (sPriority == "only") return EVENT_PRIORITY_ONLY;
+    if (sPriority == "default") return EVENT_PRIORITY_DEFAULT;
 
     float fPriority = StringToFloat(sPriority);
-    if (fPriority == 0.0 && sPriority != "0.0")
-    {
-        return fDefaultPriority;
-    }
-    else
-    {
-        return fPriority;
-    }
+    if (fPriority == 0.0 && sPriority != "0.0") return fDefaultPriority;
+    else return fPriority;
 }
 
 void RegisterEventScript(object oTarget, string sEvent, string sScripts, float fPriority = -1.0)
 {
     if (fPriority == -1.0)
-    {
         fPriority = GetIsPlugin(oTarget) ? GLOBAL_EVENT_PRIORITY : LOCAL_EVENT_PRIORITY;
-    }
 
     string sTarget   = ObjectToString(oTarget);
     string sPriority = PriorityToString(fPriority);
 
     if ((fPriority < 0.0 || fPriority > 10.0) &&
         (fPriority != EVENT_PRIORITY_FIRST && fPriority != EVENT_PRIORITY_LAST &&
-         fPriority != EVENT_PRIORITY_ONLY && fPriority != EVENT_PRIORITY_DEFAULT))
+            fPriority != EVENT_PRIORITY_ONLY && fPriority != EVENT_PRIORITY_DEFAULT))
     {
-        CriticalError("Could not register scripts: \n    Source: " + sTarget + "\n    Event: " + sEvent +
+        CriticalError("Could not register scripts: \n    Source: " + sTarget + " (" + GetName(oTarget) +
+                          " [" + GetTag(oTarget) + "])" + "\n    Event: " + sEvent +
                           "\n    Scripts: " + sScripts + "\n    Priority: " + sPriority +
                           "\n    Error: priority outside expected range",
-                      oTarget);
+            oTarget);
         return;
     }
 
     // Handle NWNX script registration.
     if (GetStringLeft(sEvent, 4) == "NWNX")
     {
-        SetScriptParam(EVENT_NAME, sEvent);
-        ExecuteScript(CORE_HOOK_NWNX);
+        if (NWNXGetIsAvailable())
+        {
+            SetScriptParam(EVENT_NAME, sEvent);
+            ExecuteScript(CORE_HOOK_NWNX);
+        }
+        else
+        {
+            CriticalError("Could not register scripts: " + "\n    Source: " + sTarget +
+                              "\n    Event: " + sEvent + "\n    Scripts: " + sScripts +
+                              "\n    Priority: " + sPriority + "\n    Error: NWNX:EE not available",
+                oTarget);
+            return;
+        }
     }
 
     int i, nCount = CountList(sScripts);
     for (i = 0; i < nCount; i++)
     {
         string sScript = GetListItem(sScripts, i);
-        Debug("Registering event script :\n    Source: " + sTarget + "\n    Event: " + sEvent +
-                  "\n    Script: " + sScript + "\n    Priority: " + sPriority,
-              DEBUG_LEVEL_DEBUG, oTarget);
+        if (IsDebugging(DEBUG_LEVEL_DEBUG))
+        {
+            Debug("Registering event script:" + "\n    Source: " + sTarget + " (" + GetName(oTarget) +
+                      " [" + GetTag(oTarget) + "])" + "\n    Event: " + sEvent +
+                      "\n    Script: " + sScript + "\n    Priority: " + sPriority,
+                DEBUG_LEVEL_DEBUG,
+                oTarget);
+        }
 
         sqlquery q = SqlPrepareQueryModule("INSERT INTO event_scripts " +
                                            "(object_id, event, script, priority) VALUES " +
@@ -896,9 +824,7 @@ void RegisterEventScript(object oTarget, string sEvent, string sScripts, float f
 
 // Alias function for backward compatibility.
 void RegisterEventScripts(object oTarget, string sEvent, string sScripts, float fPriority = -1.0)
-{
-    RegisterEventScript(oTarget, sEvent, sScripts, fPriority);
-}
+{ RegisterEventScript(oTarget, sEvent, sScripts, fPriority); }
 
 // Private function. Checks oTarget for a builder-specified event hook string
 // for sEvent and expands it into a list of scripts and priorities on oTarget.
@@ -916,10 +842,7 @@ void RegisterEventScripts(object oTarget, string sEvent, string sScripts, float 
 void ExpandEventScripts(object oTarget, string sEvent, float fDefaultPriority)
 {
     string sScripts = GetLocalString(oTarget, sEvent);
-    if (sScripts == "")
-    {
-        return;
-    }
+    if (sScripts == "") return;
 
     float fPriority;
     string sScript, sPriority;
@@ -931,10 +854,7 @@ void ExpandEventScripts(object oTarget, string sEvent, float fDefaultPriority)
         Debug("Expanding " + sEvent + " scripts: " + sScript, DEBUG_LEVEL_DEBUG, oTarget);
 
         sPriority = StringParse(sScript, ":", TRUE);
-        if (sPriority != sScript)
-        {
-            sScript = StringRemoveParsed(sScript, sPriority, ":", TRUE);
-        }
+        if (sPriority != sScript) sScript = StringRemoveParsed(sScript, sPriority, ":", TRUE);
 
         fPriority = StringToPriority(sPriority, fDefaultPriority);
         RegisterEventScript(oTarget, sEvent, sScript, fPriority);
@@ -943,14 +863,11 @@ void ExpandEventScripts(object oTarget, string sEvent, float fDefaultPriority)
     DeleteLocalString(oTarget, sEvent);
 }
 
-int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT_SELF,
-             int bLocalOnly = FALSE)
+int RunEvent(
+    string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT_SELF, int bLocalOnly = FALSE)
 {
     // Which object initiated the event?
-    if (!GetIsObjectValid(oInit))
-    {
-        oInit = oSelf;
-    }
+    if (!GetIsObjectValid(oInit)) oInit = oSelf;
 
     // Ensure the Framework has been loaded. Can't do this OnModuleLoad because
     // some events fire before OnModuleLoad.
@@ -961,15 +878,20 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
     // is. Otherwise, we use the object's debug level (or the module's debug
     // level if no level was set for the object).
     int nEventLevel = GetEventDebugLevel(sEvent, oSelf);
-    if (nEventLevel)
-    {
-        OverrideDebugLevel(nEventLevel);
-    }
+    if (nEventLevel) OverrideDebugLevel(nEventLevel);
 
     // Initialize event status
     ClearEventState(sEvent);
 
-    Debug("Preparing to run event " + sEvent, DEBUG_LEVEL_DEBUG, oSelf);
+    if (IsDebugging(DEBUG_LEVEL_DEBUG))
+    {
+        Debug("Preparing to run event " + sEvent + ":" + "\n    Initializer: " +
+                  (oInit == OBJECT_INVALID ? "[Invalid]" : GetName(oInit)) + " [" + GetTag(oInit) + "]" +
+                  "\n    Self: " + (oSelf == OBJECT_INVALID ? "[Invalid]" : GetName(oSelf)) + " [" +
+                  GetTag(oSelf) + "]" + "\n    Local: " + (bLocalOnly ? "TRUE" : "FALSE"),
+            DEBUG_LEVEL_DEBUG,
+            oSelf);
+    }
 
     // Expand the target's own local event scripts
     ExpandEventScripts(oSelf, sEvent, LOCAL_EVENT_PRIORITY);
@@ -990,13 +912,8 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
         // Creatures maintain their own list of script sources. All other objects
         // source their scripts from the object initiating the event.
         if (GetObjectType(oSelf) == OBJECT_TYPE_CREATURE)
-        {
             SqlBindString(q, "@object_id", ObjectToString(oSelf));
-        }
-        else
-        {
-            SqlBindString(q, "@object_id", ObjectToString(oInit));
-        }
+        else SqlBindString(q, "@object_id", ObjectToString(oInit));
         while (SqlStep(q))
         {
             object oSource = StringToObject(SqlGetString(q, 0));
@@ -1042,43 +959,33 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
         float fPriority = SqlGetFloat(q, 3);
 
         // Scripts with "default" priority only run if no other scripts did.
-        if (nExecuted++ && fPriority == EVENT_PRIORITY_DEFAULT)
+        if (nExecuted++ && fPriority == EVENT_PRIORITY_DEFAULT) break;
+
+        if (IsDebugging(DEBUG_LEVEL_DEBUG))
         {
-            break;
+            Debug("Executing event script " + sScript + " from " +
+                      GetDebugPrefix(StringToObject(sSource)) + " with a priority of " +
+                      PriorityToString(fPriority),
+                DEBUG_LEVEL_DEBUG,
+                oSelf);
         }
 
-        Debug("Executing event script " + sScript + " from " + GetDebugPrefix(StringToObject(sSource)) +
-                  " with a priority of " + PriorityToString(fPriority),
-              DEBUG_LEVEL_DEBUG, oSelf);
-
-        SetScriptParam(EVENT_LAST, sEvent);     // Current event
-        SetScriptParam(EVENT_TRIGGERED, sInit); // Triggering object
-        SetScriptParam(TIMER_LAST, sTimerID);   // Timer ID
-        if (sPlugin != "")
-        {
-            SetScriptParam(PLUGIN_LAST, sSource); // Plugin object
-        }
+        SetScriptParam(EVENT_LAST, sEvent);                      // Current event
+        SetScriptParam(EVENT_TRIGGERED, sInit);                  // Triggering object
+        SetScriptParam(TIMER_LAST, sTimerID);                    // Timer ID
+        if (sPlugin != "") SetScriptParam(PLUGIN_LAST, sSource); // Plugin object
 
         // Execute the script and return the saved data
         RunLibraryScript(sScript, oSelf);
         nState = GetEventState(sEvent);
-        if (nState & EVENT_STATE_ABORT)
-        {
-            break;
-        }
+        if (nState & EVENT_STATE_ABORT) break;
 
         // Scripts with "only" priority prevent other scripts from running.
-        if (fPriority == EVENT_PRIORITY_ONLY)
-        {
-            break;
-        }
+        if (fPriority == EVENT_PRIORITY_ONLY) break;
     }
 
     // Cleanup
-    if (nEventLevel)
-    {
-        OverrideDebugLevel(FALSE);
-    }
+    if (nEventLevel) OverrideDebugLevel(FALSE);
 
     return nState;
 }
@@ -1086,10 +993,7 @@ int RunEvent(string sEvent, object oInit = OBJECT_INVALID, object oSelf = OBJECT
 int RunItemEvent(string sEvent, object oItem, object oPC)
 {
     int nStatus = RunEvent(sEvent, oPC);
-    if (!(nStatus & EVENT_STATE_DENIED))
-    {
-        nStatus |= RunEvent(sEvent, oPC, oItem, TRUE);
-    }
+    if (!(nStatus & EVENT_STATE_DENIED)) nStatus |= RunEvent(sEvent, oPC, oItem, TRUE);
     return nStatus;
 }
 
@@ -1097,236 +1001,154 @@ string GetEventName(int nEvent)
 {
     switch (nEvent / 1000)
     {
-    case EVENT_TYPE_MODULE: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_MODULE_ON_HEARTBEAT:
-            return MODULE_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_MODULE_ON_USER_DEFINED_EVENT:
-            return MODULE_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_MODULE_ON_MODULE_LOAD:
-            return MODULE_EVENT_ON_MODULE_LOAD;
-        case EVENT_SCRIPT_MODULE_ON_MODULE_START:
-            return MODULE_EVENT_ON_MODULE_START;
-        case EVENT_SCRIPT_MODULE_ON_CLIENT_ENTER:
-            return MODULE_EVENT_ON_CLIENT_ENTER;
-        case EVENT_SCRIPT_MODULE_ON_CLIENT_EXIT:
-            return MODULE_EVENT_ON_CLIENT_LEAVE;
-        case EVENT_SCRIPT_MODULE_ON_ACTIVATE_ITEM:
-            return MODULE_EVENT_ON_ACTIVATE_ITEM;
-        case EVENT_SCRIPT_MODULE_ON_ACQUIRE_ITEM:
-            return MODULE_EVENT_ON_ACQUIRE_ITEM;
-        case EVENT_SCRIPT_MODULE_ON_LOSE_ITEM:
-            return MODULE_EVENT_ON_UNACQUIRE_ITEM;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_DEATH:
-            return MODULE_EVENT_ON_PLAYER_DEATH;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_DYING:
-            return MODULE_EVENT_ON_PLAYER_DYING;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_TARGET:
-            return MODULE_EVENT_ON_PLAYER_TARGET;
-        case EVENT_SCRIPT_MODULE_ON_RESPAWN_BUTTON_PRESSED:
-            return MODULE_EVENT_ON_PLAYER_RESPAWN;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_REST:
-            return MODULE_EVENT_ON_PLAYER_REST;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_LEVEL_UP:
-            return MODULE_EVENT_ON_PLAYER_LEVEL_UP;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_CANCEL_CUTSCENE:
-            return MODULE_EVENT_ON_CUTSCENE_ABORT;
-        case EVENT_SCRIPT_MODULE_ON_EQUIP_ITEM:
-            return MODULE_EVENT_ON_PLAYER_EQUIP_ITEM;
-        case EVENT_SCRIPT_MODULE_ON_UNEQUIP_ITEM:
-            return MODULE_EVENT_ON_PLAYER_UNEQUIP_ITEM;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_CHAT:
-            return MODULE_EVENT_ON_PLAYER_CHAT;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_GUIEVENT:
-            return MODULE_EVENT_ON_PLAYER_GUI;
-        case EVENT_SCRIPT_MODULE_ON_NUI_EVENT:
-            return MODULE_EVENT_ON_NUI;
-        case EVENT_SCRIPT_MODULE_ON_PLAYER_TILE_ACTION:
-            return MODULE_EVENT_ON_PLAYER_TILE_ACTION;
+        case EVENT_TYPE_MODULE: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_MODULE_ON_HEARTBEAT: return MODULE_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_MODULE_ON_USER_DEFINED_EVENT: return MODULE_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_MODULE_ON_MODULE_LOAD: return MODULE_EVENT_ON_MODULE_LOAD;
+                case EVENT_SCRIPT_MODULE_ON_MODULE_START: return MODULE_EVENT_ON_MODULE_START;
+                case EVENT_SCRIPT_MODULE_ON_CLIENT_ENTER: return MODULE_EVENT_ON_CLIENT_ENTER;
+                case EVENT_SCRIPT_MODULE_ON_CLIENT_EXIT: return MODULE_EVENT_ON_CLIENT_LEAVE;
+                case EVENT_SCRIPT_MODULE_ON_ACTIVATE_ITEM: return MODULE_EVENT_ON_ACTIVATE_ITEM;
+                case EVENT_SCRIPT_MODULE_ON_ACQUIRE_ITEM: return MODULE_EVENT_ON_ACQUIRE_ITEM;
+                case EVENT_SCRIPT_MODULE_ON_LOSE_ITEM: return MODULE_EVENT_ON_UNACQUIRE_ITEM;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_DEATH: return MODULE_EVENT_ON_PLAYER_DEATH;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_DYING: return MODULE_EVENT_ON_PLAYER_DYING;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_TARGET: return MODULE_EVENT_ON_PLAYER_TARGET;
+                case EVENT_SCRIPT_MODULE_ON_RESPAWN_BUTTON_PRESSED:
+                    return MODULE_EVENT_ON_PLAYER_RESPAWN;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_REST: return MODULE_EVENT_ON_PLAYER_REST;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_LEVEL_UP: return MODULE_EVENT_ON_PLAYER_LEVEL_UP;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_CANCEL_CUTSCENE:
+                    return MODULE_EVENT_ON_CUTSCENE_ABORT;
+                case EVENT_SCRIPT_MODULE_ON_EQUIP_ITEM: return MODULE_EVENT_ON_PLAYER_EQUIP_ITEM;
+                case EVENT_SCRIPT_MODULE_ON_UNEQUIP_ITEM: return MODULE_EVENT_ON_PLAYER_UNEQUIP_ITEM;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_CHAT: return MODULE_EVENT_ON_PLAYER_CHAT;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_GUIEVENT: return MODULE_EVENT_ON_PLAYER_GUI;
+                case EVENT_SCRIPT_MODULE_ON_NUI_EVENT: return MODULE_EVENT_ON_NUI;
+                case EVENT_SCRIPT_MODULE_ON_PLAYER_TILE_ACTION:
+                    return MODULE_EVENT_ON_PLAYER_TILE_ACTION;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_AREA: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_AREA_ON_HEARTBEAT:
-            return AREA_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_AREA_ON_USER_DEFINED_EVENT:
-            return AREA_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_AREA_ON_ENTER:
-            return AREA_EVENT_ON_ENTER;
-        case EVENT_SCRIPT_AREA_ON_EXIT:
-            return AREA_EVENT_ON_EXIT;
+        case EVENT_TYPE_AREA: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_AREA_ON_HEARTBEAT: return AREA_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_AREA_ON_USER_DEFINED_EVENT: return AREA_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_AREA_ON_ENTER: return AREA_EVENT_ON_ENTER;
+                case EVENT_SCRIPT_AREA_ON_EXIT: return AREA_EVENT_ON_EXIT;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_AREAOFEFFECT: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT:
-            return AOE_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_AREAOFEFFECT_ON_USER_DEFINED_EVENT:
-            return AOE_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_ENTER:
-            return AOE_EVENT_ON_ENTER;
-        case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT:
-            return AOE_EVENT_ON_EXIT;
+        case EVENT_TYPE_AREAOFEFFECT: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT: return AOE_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_AREAOFEFFECT_ON_USER_DEFINED_EVENT: return AOE_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_ENTER: return AOE_EVENT_ON_ENTER;
+                case EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT: return AOE_EVENT_ON_EXIT;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_CREATURE: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_CREATURE_ON_HEARTBEAT:
-            return CREATURE_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_CREATURE_ON_NOTICE:
-            return CREATURE_EVENT_ON_PERCEPTION;
-        case EVENT_SCRIPT_CREATURE_ON_SPELLCASTAT:
-            return CREATURE_EVENT_ON_SPELL_CAST_AT;
-        case EVENT_SCRIPT_CREATURE_ON_MELEE_ATTACKED:
-            return CREATURE_EVENT_ON_PHYSICAL_ATTACKED;
-        case EVENT_SCRIPT_CREATURE_ON_DAMAGED:
-            return CREATURE_EVENT_ON_DAMAGED;
-        case EVENT_SCRIPT_CREATURE_ON_DISTURBED:
-            return CREATURE_EVENT_ON_DISTURBED;
-        case EVENT_SCRIPT_CREATURE_ON_END_COMBATROUND:
-            return CREATURE_EVENT_ON_COMBAT_ROUND_END;
-        case EVENT_SCRIPT_CREATURE_ON_DIALOGUE:
-            return CREATURE_EVENT_ON_CONVERSATION;
-        case EVENT_SCRIPT_CREATURE_ON_SPAWN_IN:
-            return CREATURE_EVENT_ON_SPAWN;
-        case EVENT_SCRIPT_CREATURE_ON_RESTED:
-            return CREATURE_EVENT_ON_RESTED;
-        case EVENT_SCRIPT_CREATURE_ON_DEATH:
-            return CREATURE_EVENT_ON_DEATH;
-        case EVENT_SCRIPT_CREATURE_ON_USER_DEFINED_EVENT:
-            return CREATURE_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR:
-            return CREATURE_EVENT_ON_BLOCKED;
+        case EVENT_TYPE_CREATURE: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_CREATURE_ON_HEARTBEAT: return CREATURE_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_CREATURE_ON_NOTICE: return CREATURE_EVENT_ON_PERCEPTION;
+                case EVENT_SCRIPT_CREATURE_ON_SPELLCASTAT: return CREATURE_EVENT_ON_SPELL_CAST_AT;
+                case EVENT_SCRIPT_CREATURE_ON_MELEE_ATTACKED: return CREATURE_EVENT_ON_PHYSICAL_ATTACKED;
+                case EVENT_SCRIPT_CREATURE_ON_DAMAGED: return CREATURE_EVENT_ON_DAMAGED;
+                case EVENT_SCRIPT_CREATURE_ON_DISTURBED: return CREATURE_EVENT_ON_DISTURBED;
+                case EVENT_SCRIPT_CREATURE_ON_END_COMBATROUND: return CREATURE_EVENT_ON_COMBAT_ROUND_END;
+                case EVENT_SCRIPT_CREATURE_ON_DIALOGUE: return CREATURE_EVENT_ON_CONVERSATION;
+                case EVENT_SCRIPT_CREATURE_ON_SPAWN_IN: return CREATURE_EVENT_ON_SPAWN;
+                case EVENT_SCRIPT_CREATURE_ON_RESTED: return CREATURE_EVENT_ON_RESTED;
+                case EVENT_SCRIPT_CREATURE_ON_DEATH: return CREATURE_EVENT_ON_DEATH;
+                case EVENT_SCRIPT_CREATURE_ON_USER_DEFINED_EVENT: return CREATURE_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR: return CREATURE_EVENT_ON_BLOCKED;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_TRIGGER: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT:
-            return TRIGGER_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_TRIGGER_ON_OBJECT_ENTER:
-            return TRIGGER_EVENT_ON_ENTER;
-        case EVENT_SCRIPT_TRIGGER_ON_OBJECT_EXIT:
-            return TRIGGER_EVENT_ON_EXIT;
-        case EVENT_SCRIPT_TRIGGER_ON_USER_DEFINED_EVENT:
-            return TRIGGER_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_TRIGGER_ON_TRAPTRIGGERED:
-            return TRAP_EVENT_ON_TRIGGERED;
-        case EVENT_SCRIPT_TRIGGER_ON_DISARMED:
-            return TRAP_EVENT_ON_DISARM;
-        case EVENT_SCRIPT_TRIGGER_ON_CLICKED:
-            return TRIGGER_EVENT_ON_CLICK;
+        case EVENT_TYPE_TRIGGER: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT: return TRIGGER_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_TRIGGER_ON_OBJECT_ENTER: return TRIGGER_EVENT_ON_ENTER;
+                case EVENT_SCRIPT_TRIGGER_ON_OBJECT_EXIT: return TRIGGER_EVENT_ON_EXIT;
+                case EVENT_SCRIPT_TRIGGER_ON_USER_DEFINED_EVENT: return TRIGGER_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_TRIGGER_ON_TRAPTRIGGERED: return TRAP_EVENT_ON_TRIGGERED;
+                case EVENT_SCRIPT_TRIGGER_ON_DISARMED: return TRAP_EVENT_ON_DISARM;
+                case EVENT_SCRIPT_TRIGGER_ON_CLICKED: return TRIGGER_EVENT_ON_CLICK;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_PLACEABLE: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_PLACEABLE_ON_CLOSED:
-            return PLACEABLE_EVENT_ON_CLOSE;
-        case EVENT_SCRIPT_PLACEABLE_ON_DAMAGED:
-            return PLACEABLE_EVENT_ON_DAMAGED;
-        case EVENT_SCRIPT_PLACEABLE_ON_DEATH:
-            return PLACEABLE_EVENT_ON_DEATH;
-        case EVENT_SCRIPT_PLACEABLE_ON_DISARM:
-            return TRAP_EVENT_ON_DISARM;
-        case EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT:
-            return PLACEABLE_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_PLACEABLE_ON_INVENTORYDISTURBED:
-            return PLACEABLE_EVENT_ON_DISTURBED;
-        case EVENT_SCRIPT_PLACEABLE_ON_LOCK:
-            return PLACEABLE_EVENT_ON_LOCK;
-        case EVENT_SCRIPT_PLACEABLE_ON_MELEEATTACKED:
-            return PLACEABLE_EVENT_ON_PHYSICAL_ATTACKED;
-        case EVENT_SCRIPT_PLACEABLE_ON_OPEN:
-            return PLACEABLE_EVENT_ON_OPEN;
-        case EVENT_SCRIPT_PLACEABLE_ON_SPELLCASTAT:
-            return PLACEABLE_EVENT_ON_SPELL_CAST_AT;
-        case EVENT_SCRIPT_PLACEABLE_ON_TRAPTRIGGERED:
-            return TRAP_EVENT_ON_TRIGGERED;
-        case EVENT_SCRIPT_PLACEABLE_ON_UNLOCK:
-            return PLACEABLE_EVENT_ON_UNLOCK;
-        case EVENT_SCRIPT_PLACEABLE_ON_USED:
-            return PLACEABLE_EVENT_ON_USED;
-        case EVENT_SCRIPT_PLACEABLE_ON_USER_DEFINED_EVENT:
-            return PLACEABLE_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_PLACEABLE_ON_DIALOGUE:
-            return PLACEABLE_EVENT_ON_CONVERSATION;
-        case EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK:
-            return PLACEABLE_EVENT_ON_CLICK;
+        case EVENT_TYPE_PLACEABLE: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_PLACEABLE_ON_CLOSED: return PLACEABLE_EVENT_ON_CLOSE;
+                case EVENT_SCRIPT_PLACEABLE_ON_DAMAGED: return PLACEABLE_EVENT_ON_DAMAGED;
+                case EVENT_SCRIPT_PLACEABLE_ON_DEATH: return PLACEABLE_EVENT_ON_DEATH;
+                case EVENT_SCRIPT_PLACEABLE_ON_DISARM: return TRAP_EVENT_ON_DISARM;
+                case EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT: return PLACEABLE_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_PLACEABLE_ON_INVENTORYDISTURBED: return PLACEABLE_EVENT_ON_DISTURBED;
+                case EVENT_SCRIPT_PLACEABLE_ON_LOCK: return PLACEABLE_EVENT_ON_LOCK;
+                case EVENT_SCRIPT_PLACEABLE_ON_MELEEATTACKED:
+                    return PLACEABLE_EVENT_ON_PHYSICAL_ATTACKED;
+                case EVENT_SCRIPT_PLACEABLE_ON_OPEN: return PLACEABLE_EVENT_ON_OPEN;
+                case EVENT_SCRIPT_PLACEABLE_ON_SPELLCASTAT: return PLACEABLE_EVENT_ON_SPELL_CAST_AT;
+                case EVENT_SCRIPT_PLACEABLE_ON_TRAPTRIGGERED: return TRAP_EVENT_ON_TRIGGERED;
+                case EVENT_SCRIPT_PLACEABLE_ON_UNLOCK: return PLACEABLE_EVENT_ON_UNLOCK;
+                case EVENT_SCRIPT_PLACEABLE_ON_USED: return PLACEABLE_EVENT_ON_USED;
+                case EVENT_SCRIPT_PLACEABLE_ON_USER_DEFINED_EVENT:
+                    return PLACEABLE_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_PLACEABLE_ON_DIALOGUE: return PLACEABLE_EVENT_ON_CONVERSATION;
+                case EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK: return PLACEABLE_EVENT_ON_CLICK;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_DOOR: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_DOOR_ON_OPEN:
-            return DOOR_EVENT_ON_OPEN;
-        case EVENT_SCRIPT_DOOR_ON_CLOSE:
-            return DOOR_EVENT_ON_CLOSE;
-        case EVENT_SCRIPT_DOOR_ON_DAMAGE:
-            return DOOR_EVENT_ON_DAMAGED;
-        case EVENT_SCRIPT_DOOR_ON_DEATH:
-            return DOOR_EVENT_ON_DEATH;
-        case EVENT_SCRIPT_DOOR_ON_DISARM:
-            return TRAP_EVENT_ON_DISARM;
-        case EVENT_SCRIPT_DOOR_ON_HEARTBEAT:
-            return DOOR_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_DOOR_ON_LOCK:
-            return DOOR_EVENT_ON_LOCK;
-        case EVENT_SCRIPT_DOOR_ON_MELEE_ATTACKED:
-            return DOOR_EVENT_ON_PHYSICAL_ATTACKED;
-        case EVENT_SCRIPT_DOOR_ON_SPELLCASTAT:
-            return DOOR_EVENT_ON_SPELL_CAST_AT;
-        case EVENT_SCRIPT_DOOR_ON_TRAPTRIGGERED:
-            return TRAP_EVENT_ON_TRIGGERED;
-        case EVENT_SCRIPT_DOOR_ON_UNLOCK:
-            return DOOR_EVENT_ON_UNLOCK;
-        case EVENT_SCRIPT_DOOR_ON_USERDEFINED:
-            return DOOR_EVENT_ON_USER_DEFINED;
-        case EVENT_SCRIPT_DOOR_ON_CLICKED:
-            return DOOR_EVENT_ON_AREA_TRANSITION_CLICK;
-        case EVENT_SCRIPT_DOOR_ON_DIALOGUE:
-            return DOOR_EVENT_ON_CONVERSATION;
-        case EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN:
-            return DOOR_EVENT_ON_FAIL_TO_OPEN;
+        case EVENT_TYPE_DOOR: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_DOOR_ON_OPEN: return DOOR_EVENT_ON_OPEN;
+                case EVENT_SCRIPT_DOOR_ON_CLOSE: return DOOR_EVENT_ON_CLOSE;
+                case EVENT_SCRIPT_DOOR_ON_DAMAGE: return DOOR_EVENT_ON_DAMAGED;
+                case EVENT_SCRIPT_DOOR_ON_DEATH: return DOOR_EVENT_ON_DEATH;
+                case EVENT_SCRIPT_DOOR_ON_DISARM: return TRAP_EVENT_ON_DISARM;
+                case EVENT_SCRIPT_DOOR_ON_HEARTBEAT: return DOOR_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_DOOR_ON_LOCK: return DOOR_EVENT_ON_LOCK;
+                case EVENT_SCRIPT_DOOR_ON_MELEE_ATTACKED: return DOOR_EVENT_ON_PHYSICAL_ATTACKED;
+                case EVENT_SCRIPT_DOOR_ON_SPELLCASTAT: return DOOR_EVENT_ON_SPELL_CAST_AT;
+                case EVENT_SCRIPT_DOOR_ON_TRAPTRIGGERED: return TRAP_EVENT_ON_TRIGGERED;
+                case EVENT_SCRIPT_DOOR_ON_UNLOCK: return DOOR_EVENT_ON_UNLOCK;
+                case EVENT_SCRIPT_DOOR_ON_USERDEFINED: return DOOR_EVENT_ON_USER_DEFINED;
+                case EVENT_SCRIPT_DOOR_ON_CLICKED: return DOOR_EVENT_ON_AREA_TRANSITION_CLICK;
+                case EVENT_SCRIPT_DOOR_ON_DIALOGUE: return DOOR_EVENT_ON_CONVERSATION;
+                case EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN: return DOOR_EVENT_ON_FAIL_TO_OPEN;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_ENCOUNTER: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER:
-            return ENCOUNTER_EVENT_ON_ENTER;
-        case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_EXIT:
-            return ENCOUNTER_EVENT_ON_EXIT;
-        case EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT:
-            return ENCOUNTER_EVENT_ON_HEARTBEAT;
-        case EVENT_SCRIPT_ENCOUNTER_ON_ENCOUNTER_EXHAUSTED:
-            return ENCOUNTER_EVENT_ON_EXHAUSTED;
-        case EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT:
-            return ENCOUNTER_EVENT_ON_USER_DEFINED;
+        case EVENT_TYPE_ENCOUNTER: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER: return ENCOUNTER_EVENT_ON_ENTER;
+                case EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_EXIT: return ENCOUNTER_EVENT_ON_EXIT;
+                case EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT: return ENCOUNTER_EVENT_ON_HEARTBEAT;
+                case EVENT_SCRIPT_ENCOUNTER_ON_ENCOUNTER_EXHAUSTED: return ENCOUNTER_EVENT_ON_EXHAUSTED;
+                case EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT:
+                    return ENCOUNTER_EVENT_ON_USER_DEFINED;
+            }
+            break;
         }
-        break;
-    }
-    case EVENT_TYPE_STORE: {
-        switch (nEvent)
-        {
-        case EVENT_SCRIPT_STORE_ON_OPEN:
-            return STORE_EVENT_ON_OPEN;
-        case EVENT_SCRIPT_STORE_ON_CLOSE:
-            return STORE_EVENT_ON_CLOSE;
+        case EVENT_TYPE_STORE: {
+            switch (nEvent)
+            {
+                case EVENT_SCRIPT_STORE_ON_OPEN: return STORE_EVENT_ON_OPEN;
+                case EVENT_SCRIPT_STORE_ON_CLOSE: return STORE_EVENT_ON_CLOSE;
+            }
+            break;
         }
-        break;
-    }
     }
 
     return "";
@@ -1336,16 +1158,11 @@ void HookObjectEvent(object oObject, int nEvent, int bStoreOldEvent = TRUE)
 {
     string sScript = GetEventScript(oObject, nEvent);
     SetEventScript(oObject, nEvent, CORE_HOOK_NWN);
-    if (!bStoreOldEvent || sScript == "" || sScript == CORE_HOOK_NWN)
-    {
-        return;
-    }
+    if (!bStoreOldEvent || sScript == "" || sScript == CORE_HOOK_NWN) return;
 
     string sEvent = GetEventName(nEvent);
     if (GetIsPC(oObject) && GetStringLeft(sEvent, 10) == "OnCreature")
-    {
         sEvent = ReplaceSubString(sEvent, "OnPC", 0, 9);
-    }
     AddLocalListItem(oObject, sEvent, sScript);
 }
 
@@ -1356,92 +1173,59 @@ void HookObjectEvents(object oObject, int bSkipHeartbeat = TRUE, int bStoreOldEv
     {
         nStart = EVENT_SCRIPT_MODULE_ON_HEARTBEAT;
         nEnd   = EVENT_SCRIPT_MODULE_ON_NUI_EVENT;
-        if (bSkipHeartbeat)
-        {
-            nStart++;
-        }
+        if (bSkipHeartbeat) nStart++;
     }
     else if (oObject == GetArea(oObject))
     {
         nStart = EVENT_SCRIPT_AREA_ON_HEARTBEAT;
         nEnd   = EVENT_SCRIPT_AREA_ON_EXIT;
-        if (bSkipHeartbeat)
-        {
-            nStart++;
-        }
+        if (bSkipHeartbeat) nStart++;
     }
     else
     {
         switch (GetObjectType(oObject))
         {
-        case OBJECT_TYPE_CREATURE:
-            nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
-            nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
-            if (bSkipHeartbeat)
-            {
-                nStart++;
-            }
-            break;
-        case OBJECT_TYPE_AREA_OF_EFFECT:
-            nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
-            nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
-            if (bSkipHeartbeat)
-            {
-                nStart++;
-            }
-            break;
-        case OBJECT_TYPE_DOOR:
-            nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
-            nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
-            if (bSkipHeartbeat)
-            {
-                nSkip = EVENT_SCRIPT_DOOR_ON_HEARTBEAT;
-            }
-            break;
-        case OBJECT_TYPE_PLACEABLE:
-            nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
-            nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
-            if (bSkipHeartbeat)
-            {
-                nSkip = EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT;
-            }
-            break;
-        case OBJECT_TYPE_ENCOUNTER:
-            nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
-            nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
-            if (bSkipHeartbeat)
-            {
-                nSkip = EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT;
-            }
-            break;
-        case OBJECT_TYPE_TRIGGER:
-            nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
-            nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
-            if (bSkipHeartbeat)
-            {
-                nStart++;
-            }
-            if (JsonPointer(ObjectToJson(oObject), "/LinkedTo/value") == JsonString(""))
-            {
-                nEnd--;
-            }
-            break;
-        case OBJECT_TYPE_STORE:
-            nStart = EVENT_SCRIPT_STORE_ON_OPEN;
-            nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
-            break;
-        default:
-            return;
+            case OBJECT_TYPE_CREATURE:
+                nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
+                nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
+                if (bSkipHeartbeat) nStart++;
+                break;
+            case OBJECT_TYPE_AREA_OF_EFFECT:
+                nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
+                nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
+                if (bSkipHeartbeat) nStart++;
+                break;
+            case OBJECT_TYPE_DOOR:
+                nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
+                nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
+                if (bSkipHeartbeat) nSkip = EVENT_SCRIPT_DOOR_ON_HEARTBEAT;
+                break;
+            case OBJECT_TYPE_PLACEABLE:
+                nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
+                nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
+                if (bSkipHeartbeat) nSkip = EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT;
+                break;
+            case OBJECT_TYPE_ENCOUNTER:
+                nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
+                nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
+                if (bSkipHeartbeat) nSkip = EVENT_SCRIPT_ENCOUNTER_ON_HEARTBEAT;
+                break;
+            case OBJECT_TYPE_TRIGGER:
+                nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
+                nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
+                if (bSkipHeartbeat) nStart++;
+                if (JsonPointer(ObjectToJson(oObject), "/LinkedTo/value") == JsonString("")) nEnd--;
+                break;
+            case OBJECT_TYPE_STORE:
+                nStart = EVENT_SCRIPT_STORE_ON_OPEN;
+                nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
+                break;
+            default: return;
         }
     }
 
     for (nEvent = nStart; nEvent <= nEnd; nEvent++)
-    {
-        if (nEvent != nSkip)
-        {
-            HookObjectEvent(oObject, nEvent, bStoreOldEvents);
-        }
-    }
+        if (nEvent != nSkip) HookObjectEvent(oObject, nEvent, bStoreOldEvents);
 }
 
 void UnHookObjectEvent(object oObject, int nEvent)
@@ -1469,53 +1253,47 @@ void UnHookObjectEvents(object oObject)
     {
         switch (GetObjectType(oObject))
         {
-        case OBJECT_TYPE_CREATURE:
-            nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
-            nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
-            break;
-        case OBJECT_TYPE_AREA_OF_EFFECT:
-            nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
-            nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
-            break;
-        case OBJECT_TYPE_DOOR:
-            nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
-            nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
-            break;
-        case OBJECT_TYPE_PLACEABLE:
-            nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
-            nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
-            break;
-        case OBJECT_TYPE_ENCOUNTER:
-            nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
-            nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
-            break;
-        case OBJECT_TYPE_TRIGGER:
-            nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
-            nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
-            break;
-        case OBJECT_TYPE_STORE:
-            nStart = EVENT_SCRIPT_STORE_ON_OPEN;
-            nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
-            break;
-        default:
-            return;
+            case OBJECT_TYPE_CREATURE:
+                nStart = EVENT_SCRIPT_CREATURE_ON_HEARTBEAT;
+                nEnd   = EVENT_SCRIPT_CREATURE_ON_BLOCKED_BY_DOOR;
+                break;
+            case OBJECT_TYPE_AREA_OF_EFFECT:
+                nStart = EVENT_SCRIPT_AREAOFEFFECT_ON_HEARTBEAT;
+                nEnd   = EVENT_SCRIPT_AREAOFEFFECT_ON_OBJECT_EXIT;
+                break;
+            case OBJECT_TYPE_DOOR:
+                nStart = EVENT_SCRIPT_DOOR_ON_OPEN;
+                nEnd   = EVENT_SCRIPT_DOOR_ON_FAIL_TO_OPEN;
+                break;
+            case OBJECT_TYPE_PLACEABLE:
+                nStart = EVENT_SCRIPT_PLACEABLE_ON_CLOSED;
+                nEnd   = EVENT_SCRIPT_PLACEABLE_ON_LEFT_CLICK;
+                break;
+            case OBJECT_TYPE_ENCOUNTER:
+                nStart = EVENT_SCRIPT_ENCOUNTER_ON_OBJECT_ENTER;
+                nEnd   = EVENT_SCRIPT_ENCOUNTER_ON_USER_DEFINED_EVENT;
+                break;
+            case OBJECT_TYPE_TRIGGER:
+                nStart = EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT;
+                nEnd   = EVENT_SCRIPT_TRIGGER_ON_CLICKED;
+                break;
+            case OBJECT_TYPE_STORE:
+                nStart = EVENT_SCRIPT_STORE_ON_OPEN;
+                nEnd   = EVENT_SCRIPT_STORE_ON_CLOSE;
+                break;
+            default: return;
         }
     }
 
     for (nEvent = nStart; nEvent <= nEnd; nEvent++)
-    {
         UnHookObjectEvent(oObject, nEvent);
-    }
 }
 
 // ----- Plugin Management -----------------------------------------------------
 
 object GetPlugin(string sPlugin)
 {
-    if (sPlugin == "")
-    {
-        return OBJECT_INVALID;
-    }
+    if (sPlugin == "") return OBJECT_INVALID;
 
     sqlquery q =
         SqlPrepareQueryModule("SELECT object_id FROM event_plugins WHERE plugin_id = @plugin_id;");
@@ -1523,10 +1301,7 @@ object GetPlugin(string sPlugin)
     return SqlStep(q) ? StringToObject(SqlGetString(q, 0)) : OBJECT_INVALID;
 }
 
-sqlquery GetPlugins()
-{
-    return SqlPrepareQueryModule("SELECT plugin_id FROM event_plugins;");
-}
+sqlquery GetPlugins() { return SqlPrepareQueryModule("SELECT plugin_id FROM event_plugins;"); }
 
 int CountPlugins()
 {
@@ -1536,10 +1311,7 @@ int CountPlugins()
 
 object CreatePlugin(string sPlugin)
 {
-    if (sPlugin == "")
-    {
-        return OBJECT_INVALID;
-    }
+    if (sPlugin == "") return OBJECT_INVALID;
 
     Debug("Creating plugin " + sPlugin);
 
@@ -1547,18 +1319,15 @@ object CreatePlugin(string sPlugin)
     // the necessary variables on it. Try to create it. If it's not valid,
     // we can generate one from scratch.
     object oPlugin = CreateItemOnObject(sPlugin, PLUGINS);
-    if (GetIsObjectValid(oPlugin))
-    {
-        SetDataItem(PLUGINS, sPlugin, oPlugin);
-    }
+    if (GetIsObjectValid(oPlugin)) { SetDataItem(PLUGINS, sPlugin, oPlugin); }
     else
     {
         oPlugin = CreateDataItem(PLUGINS, sPlugin);
         SetTag(oPlugin, sPlugin);
     }
 
-    sqlquery q = SqlPrepareQueryModule("INSERT INTO event_plugins " +
-                                       "(plugin_id, object_id) VALUES (@plugin_id, @object_id);");
+    sqlquery q = SqlPrepareQueryModule(
+        "INSERT INTO event_plugins " + "(plugin_id, object_id) VALUES (@plugin_id, @object_id);");
     SqlBindString(q, "@plugin_id", sPlugin);
     SqlBindString(q, "@object_id", ObjectToString(oPlugin));
     SqlStep(q);
@@ -1573,23 +1342,14 @@ int GetPluginStatus(object oPlugin)
     return SqlStep(q) ? SqlGetInt(q, 0) : PLUGIN_STATUS_MISSING;
 }
 
-int GetIfPluginExists(string sPlugin)
-{
-    return GetIsObjectValid(GetPlugin(sPlugin));
-}
+int GetIfPluginExists(string sPlugin) { return GetIsObjectValid(GetPlugin(sPlugin)); }
 
-int GetIsPluginActivated(object oPlugin)
-{
-    return GetPluginStatus(oPlugin) == PLUGIN_STATUS_ON;
-}
+int GetIsPluginActivated(object oPlugin) { return GetPluginStatus(oPlugin) == PLUGIN_STATUS_ON; }
 
 int _ActivatePlugin(string sPlugin, int bActive, int bForce)
 {
     object oPlugin = GetPlugin(sPlugin);
-    if (!GetIsObjectValid(oPlugin))
-    {
-        return FALSE;
-    }
+    if (!GetIsObjectValid(oPlugin)) return FALSE;
 
     string sVerb   = bActive ? "activate" : "deactivate";
     string sVerbed = sVerb + "d";
@@ -1612,8 +1372,8 @@ int _ActivatePlugin(string sPlugin, int bActive, int bForce)
             return FALSE;
         }
 
-        sqlquery q = SqlPrepareQueryModule("UPDATE event_plugins SET " +
-                                           "active = @active WHERE object_id = @object_id;");
+        sqlquery q = SqlPrepareQueryModule(
+            "UPDATE event_plugins SET " + "active = @active WHERE object_id = @object_id;");
         SqlBindInt(q, "@active", bActive);
         SqlBindString(q, "@object_id", ObjectToString(oPlugin));
         SqlStep(q);
@@ -1626,24 +1386,16 @@ int _ActivatePlugin(string sPlugin, int bActive, int bForce)
     return FALSE;
 }
 
-int ActivatePlugin(string sPlugin, int bForce = FALSE)
-{
-    return _ActivatePlugin(sPlugin, TRUE, bForce);
-}
+int ActivatePlugin(string sPlugin, int bForce = FALSE) { return _ActivatePlugin(sPlugin, TRUE, bForce); }
 
 int DeactivatePlugin(string sPlugin, int bForce = FALSE)
-{
-    return _ActivatePlugin(sPlugin, FALSE, bForce);
-}
+{ return _ActivatePlugin(sPlugin, FALSE, bForce); }
 
 void UnloadPlugin(string sPlugin)
 {
     object oPlugin = GetPlugin(sPlugin);
 
-    if (!GetIsObjectValid(oPlugin))
-    {
-        return;
-    }
+    if (!GetIsObjectValid(oPlugin)) return;
 
     int nStatus = GetPluginStatus(oPlugin);
     if (nStatus == PLUGIN_STATUS_MISSING)
@@ -1673,10 +1425,7 @@ void ReloadPlugin(string sPlugin, string sLibrary = "")
 {
     object oPlugin = GetPlugin(sPlugin);
 
-    if (!GetIsObjectValid(oPlugin))
-    {
-        return;
-    }
+    if (!GetIsObjectValid(oPlugin)) return;
 
     int nStatus = GetPluginStatus(oPlugin);
     if (nStatus == PLUGIN_STATUS_MISSING)
@@ -1724,17 +1473,11 @@ string GetPluginID(object oPlugin)
 
 int GetIsPlugin(object oObject)
 {
-    if (!GetIsObjectValid(oObject))
-    {
-        return FALSE;
-    }
+    if (!GetIsObjectValid(oObject)) return FALSE;
     return GetPluginID(oObject) != "";
 }
 
-object GetCurrentPlugin()
-{
-    return StringToObject(GetScriptParam(PLUGIN_LAST));
-}
+object GetCurrentPlugin() { return StringToObject(GetScriptParam(PLUGIN_LAST)); }
 
 void SetCurrentPlugin(object oPlugin = OBJECT_INVALID)
 {
@@ -1744,10 +1487,7 @@ void SetCurrentPlugin(object oPlugin = OBJECT_INVALID)
 
 // ----- Timer Management ------------------------------------------------------
 
-int GetCurrentTimer()
-{
-    return StringToInt(GetScriptParam(TIMER_LAST));
-}
+int GetCurrentTimer() { return StringToInt(GetScriptParam(TIMER_LAST)); }
 
 void SetCurrentTimer(int nTimerID = 0)
 {
@@ -1755,11 +1495,9 @@ void SetCurrentTimer(int nTimerID = 0)
     SetScriptParam(TIMER_LAST, sTimerID);
 }
 
-int CreateEventTimer(object oTarget, string sEvent, float fInterval, int nIterations = 0,
-                     float fJitter = 0.0)
-{
-    return CreateTimer(oTarget, sEvent, fInterval, nIterations, fJitter, CORE_HOOK_TIMERS);
-}
+int CreateEventTimer(
+    object oTarget, string sEvent, float fInterval, int nIterations = 0, float fJitter = 0.0)
+{ return CreateTimer(oTarget, sEvent, fInterval, nIterations, fJitter, CORE_HOOK_TIMERS); }
 
 // ----- Miscellaneous ---------------------------------------------------------
 
