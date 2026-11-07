@@ -16,6 +16,10 @@
 //                                  Constants
 // -----------------------------------------------------------------------------
 
+const int QUEST_NOT_TAKEN_STATE      = 0;
+const int QUEST_COMPLETE_STATE       = 1000;
+const int QUEST_COMPLETE_OTHER_STATE = 1001;
+
 const int QUEST_NOT_TAKEN_INT      = 0;
 const int QUEST_IN_PROGRESS_INT    = 1;
 const int QUEST_COMPLETE_INT       = 2;
@@ -59,16 +63,20 @@ int pqj_GetQuestStatus(string sPlotID, object oPC);
 // ---< pqj_i_main >---
 // As AddJournalQuestEntry(), but stores the quest state in the database so it
 // can be restored after a server reset.
-void pqj_AddJournalQuestEntry(string sPlotID, int nState, int nStatus, object oPC,
-                              int bAllPartyMembers = TRUE, int bAllPlayers = FALSE,
-                              int bAllowOverrideHigher = FALSE);
+void pqj_AddJournalQuestEntry(string sPlotID,
+    int nState,
+    int nStatus,
+    object oPC,
+    int bAllPartyMembers     = TRUE,
+    int bAllPlayers          = FALSE,
+    int bAllowOverrideHigher = FALSE);
 
 // ---< pqj_RemoveJournalQuestEntry >---
 // ---< pqj_i_main >---
 // As RemoveJournalQuestEntry(), but removes the quest from the database so it
 // will not be restored after a server reset.
-void pqj_RemoveJournalQuestEntry(string sPlotID, object oPC, int bAllPartyMembers = TRUE,
-                                 int bAllPlayers = FALSE);
+void pqj_RemoveJournalQuestEntry(
+    string sPlotID, object oPC, int bAllPartyMembers = TRUE, int bAllPlayers = FALSE);
 
 // ---< pqj_QuestStatusToString >---
 // ---< pqj_i_main >---
@@ -78,14 +86,20 @@ string pqj_QuestStatusToString(int nStatus);
 // ---< pqj_UpdateQuest >---
 // ---< pqj_i_main >---
 // As AddJournalQuestEntry(), but updates quest state and status
-void pqj_UpdateQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, int bAllPlayers = FALSE,
-                     int bAllowOverrideHigher = FALSE);
+void pqj_UpdateQuest(string sPlotID,
+    object oPC,
+    int bAllPartyMembers     = TRUE,
+    int bAllPlayers          = FALSE,
+    int bAllowOverrideHigher = FALSE);
 
 // ---< pqj_CompleteQuest >---
 // ---< pqj_i_main >---
 // As AddJournalQuestEntry(), but completes quest state and status
-void pqj_CompleteQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, int bAllPlayers = FALSE,
-                       int bAllowOverrideHigher = FALSE);
+void pqj_CompleteQuest(string sPlotID,
+    object oPC,
+    int bAllPartyMembers     = TRUE,
+    int bAllPlayers          = FALSE,
+    int bAllowOverrideHigher = FALSE);
 
 // -----------------------------------------------------------------------------
 //                              Funcion Definitions
@@ -99,10 +113,11 @@ void pqj_CreateTable(object oPC, int bForce = FALSE)
     }
 
     Debug("Creating table pqjdata on " + GetName(oPC));
-    SqlCreateTablePC(oPC, "pqjdata",
-                     "quest TEXT NOT NULL PRIMARY KEY, " + "state INTEGER NOT NULL DEFAULT 0, " +
-                         "status INTEGER NOT NULL DEFAULT 0",
-                     bForce);
+    SqlCreateTablePC(oPC,
+        "pqjdata",
+        "quest TEXT NOT NULL PRIMARY KEY, state INTEGER NOT NULL DEFAULT 0, " +
+            "status INTEGER NOT NULL DEFAULT 0",
+        bForce);
 }
 
 void pqj_RestoreJournalEntries(object oPC)
@@ -166,15 +181,15 @@ int pqj_GetQuestStatus(string sPlotID, object oPC)
 }
 
 // Internal function for pqj_AddJournalQuestEntry().
-void _StoreQuestEntry(string sPlotID, int nState, int nStatus, object oPC,
-                      int bAllowOverrideHigher = FALSE)
+void _StoreQuestEntry(
+    string sPlotID, int nState, int nStatus, object oPC, int bAllowOverrideHigher = FALSE)
 {
     string sMessage = "persistent journal entry for " + GetName(oPC) + "; " + "sPlotID: " + sPlotID +
                       "; nState: " + IntToString(nState) + "; nStatus: " + IntToString(nStatus);
-    string sQuery = "INSERT INTO pqjdata (quest, state, status) " +
-                    "VALUES (@quest, @state, @status) ON CONFLICT (quest) DO UPDATE SET state = " +
-                    (bAllowOverrideHigher ? "@state" : "MAX(state, @state)") +
-                    ", status = " + (bAllowOverrideHigher ? "@status" : "MAX(status, @status)") + ";";
+    string sQuery   = "INSERT INTO pqjdata (quest, state, status) " +
+                      "VALUES (@quest, @state, @status) ON CONFLICT (quest) DO UPDATE SET state = " +
+                      (bAllowOverrideHigher ? "@state" : "MAX(state, @state)") +
+                      ", status = " + (bAllowOverrideHigher ? "@status" : "MAX(status, @status)") + ";";
     sqlquery qQuery = SqlPrepareQueryObject(oPC, sQuery);
     SqlBindString(qQuery, "@quest", sPlotID);
     SqlBindInt(qQuery, "@state", nState);
@@ -192,9 +207,13 @@ void _StoreQuestEntry(string sPlotID, int nState, int nStatus, object oPC,
     }
 }
 
-void pqj_AddJournalQuestEntry(string sPlotID, int nState, int nStatus, object oPC,
-                              int bAllPartyMembers = TRUE, int bAllPlayers = FALSE,
-                              int bAllowOverrideHigher = FALSE)
+void pqj_AddJournalQuestEntry(string sPlotID,
+    int nState,
+    int nStatus,
+    object oPC,
+    int bAllPartyMembers     = TRUE,
+    int bAllPlayers          = FALSE,
+    int bAllowOverrideHigher = FALSE)
 {
     if (!GetIsPC(oPC))
     {
@@ -251,8 +270,8 @@ void _DeleteQuestEntry(string sPlotID, object oPC)
     }
 }
 
-void pqj_RemoveJournalQuestEntry(string sPlotID, object oPC, int bAllPartyMembers = TRUE,
-                                 int bAllPlayers = FALSE)
+void pqj_RemoveJournalQuestEntry(
+    string sPlotID, object oPC, int bAllPartyMembers = TRUE, int bAllPlayers = FALSE)
 {
     RemoveJournalQuestEntry(sPlotID, oPC, bAllPartyMembers, bAllPlayers);
 
@@ -286,25 +305,28 @@ string pqj_QuestStatusToString(int nStatus)
 {
     switch (nStatus)
     {
-    default:
-    case QUEST_NOT_TAKEN_INT:
-        return QUEST_NOT_TAKEN_STRING;
-        break;
-    case QUEST_IN_PROGRESS_INT:
-        return QUEST_IN_PROGRESS_STRING;
-        break;
-    case QUEST_COMPLETE_INT:
-        return QUEST_COMPLETE_STRING;
-        break;
-    case QUEST_COMPLETE_OTHER_INT:
-        return QUEST_COMPLETE_OTHER_STRING;
-        break;
+        default:
+        case QUEST_NOT_TAKEN_INT:
+            return QUEST_NOT_TAKEN_STRING;
+            break;
+        case QUEST_IN_PROGRESS_INT:
+            return QUEST_IN_PROGRESS_STRING;
+            break;
+        case QUEST_COMPLETE_INT:
+            return QUEST_COMPLETE_STRING;
+            break;
+        case QUEST_COMPLETE_OTHER_INT:
+            return QUEST_COMPLETE_OTHER_STRING;
+            break;
     }
     return QUEST_NOT_TAKEN_STRING;
 }
 
-void pqj_UpdateQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, int bAllPlayers = FALSE,
-                     int bAllowOverrideHigher = FALSE)
+void pqj_UpdateQuest(string sPlotID,
+    object oPC,
+    int bAllPartyMembers     = TRUE,
+    int bAllPlayers          = FALSE,
+    int bAllowOverrideHigher = FALSE)
 {
     if (!GetIsPC(oPC))
     {
@@ -314,8 +336,13 @@ void pqj_UpdateQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, in
     int nState  = pqj_GetQuestState(sPlotID, oPC) + 1;
     int nStatus = pqj_GetQuestStatus(sPlotID, oPC) + 1;
 
-    pqj_AddJournalQuestEntry(sPlotID, nState, nStatus, oPC, bAllPartyMembers, bAllPlayers,
-                             bAllowOverrideHigher);
+    pqj_AddJournalQuestEntry(sPlotID,
+        nState,
+        QUEST_IN_PROGRESS_INT,
+        oPC,
+        bAllPartyMembers,
+        bAllPlayers,
+        bAllowOverrideHigher);
 
     if (bAllPlayers)
     {
@@ -323,7 +350,7 @@ void pqj_UpdateQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, in
         oPC = GetFirstPC();
         while (GetIsObjectValid(oPC))
         {
-            _StoreQuestEntry(sPlotID, nState, nStatus, oPC, bAllowOverrideHigher);
+            _StoreQuestEntry(sPlotID, nState, QUEST_IN_PROGRESS_INT, oPC, bAllowOverrideHigher);
             oPC = GetNextPC();
         }
     }
@@ -333,26 +360,34 @@ void pqj_UpdateQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, in
         object oPartyMember = GetFirstFactionMember(oPC, TRUE);
         while (GetIsObjectValid(oPartyMember))
         {
-            _StoreQuestEntry(sPlotID, nState, nStatus, oPartyMember, bAllowOverrideHigher);
+            _StoreQuestEntry(sPlotID, nState, QUEST_IN_PROGRESS_INT, oPartyMember, bAllowOverrideHigher);
             oPartyMember = GetNextFactionMember(oPC, TRUE);
         }
     }
     else
     {
-        _StoreQuestEntry(sPlotID, nState, nStatus, oPC, bAllowOverrideHigher);
+        _StoreQuestEntry(sPlotID, nState, QUEST_IN_PROGRESS_INT, oPC, bAllowOverrideHigher);
     }
 }
 
-void pqj_CompleteQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, int bAllPlayers = FALSE,
-                       int bAllowOverrideHigher = FALSE)
+void pqj_CompleteQuest(string sPlotID,
+    object oPC,
+    int bAllPartyMembers     = TRUE,
+    int bAllPlayers          = FALSE,
+    int bAllowOverrideHigher = FALSE)
 {
     if (!GetIsPC(oPC))
     {
         return;
     }
 
-    pqj_AddJournalQuestEntry(sPlotID, nState, QUEST_COMPLETE_INT, oPC, bAllPartyMembers, bAllPlayers,
-                             bAllowOverrideHigher);
+    pqj_AddJournalQuestEntry(sPlotID,
+        QUEST_COMPLETE_STATE,
+        QUEST_COMPLETE_INT,
+        oPC,
+        bAllPartyMembers,
+        bAllPlayers,
+        bAllowOverrideHigher);
 
     object oOtherPC;
 
@@ -364,12 +399,16 @@ void pqj_CompleteQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, 
         {
             if (oOtherPC == oPC)
             {
-                _StoreQuestEntry(sPlotID, nState, QUEST_COMPLETE_INT, oOtherPC, bAllowOverrideHigher);
+                _StoreQuestEntry(
+                    sPlotID, QUEST_COMPLETE_STATE, QUEST_COMPLETE_INT, oOtherPC, bAllowOverrideHigher);
             }
             else
             {
-                _StoreQuestEntry(sPlotID, nState, QUEST_COMPLETE_OTHER_INT, oOtherPC,
-                                 bAllowOverrideHigher);
+                _StoreQuestEntry(sPlotID,
+                    QUEST_COMPLETE_OTHER_STATE,
+                    QUEST_COMPLETE_OTHER_INT,
+                    oOtherPC,
+                    bAllowOverrideHigher);
             }
 
             oOtherPC = GetNextPC();
@@ -381,13 +420,16 @@ void pqj_CompleteQuest(string sPlotID, object oPC, int bAllPartyMembers = TRUE, 
         object oPartyMember = GetFirstFactionMember(oPC, TRUE);
         while (GetIsObjectValid(oPartyMember))
         {
-            _StoreQuestEntry(sPlotID, nState, QUEST_COMPLETE_OTHER_INT, oPartyMember,
-                             bAllowOverrideHigher);
+            _StoreQuestEntry(sPlotID,
+                QUEST_COMPLETE_OTHER_STATE,
+                QUEST_COMPLETE_OTHER_INT,
+                oPartyMember,
+                bAllowOverrideHigher);
             oPartyMember = GetNextFactionMember(oPC, TRUE);
         }
     }
     else
     {
-        _StoreQuestEntry(sPlotID, nState, QUEST_COMPLETE_INT, oPC, bAllowOverrideHigher);
+        _StoreQuestEntry(sPlotID, QUEST_COMPLETE_STATE, QUEST_COMPLETE_INT, oPC, bAllowOverrideHigher);
     }
 }
